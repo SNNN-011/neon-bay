@@ -70,3 +70,26 @@ export function resolveCircleVsBoxes(pos, radius, boxes) {
 export function pointInBox(x, z, b) {
   return x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ;
 }
+
+// 2D segment vs AABB slab test — true if any tall box blocks the line.
+export function segmentBlocked(x1, z1, x2, z2, boxes) {
+  const dx = x2 - x1, dz = z2 - z1;
+  for (const b of boxes) {
+    if (b.height < 2) continue;
+    let tmin = 0, tmax = 1;
+    let ok = true;
+    for (const [o, d, lo, hi] of [[x1, dx, b.minX, b.maxX], [z1, dz, b.minZ, b.maxZ]]) {
+      if (Math.abs(d) < 1e-9) {
+        if (o < lo || o > hi) { ok = false; break; }
+      } else {
+        let t1 = (lo - o) / d, t2 = (hi - o) / d;
+        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+        tmin = Math.max(tmin, t1);
+        tmax = Math.min(tmax, t2);
+        if (tmin > tmax) { ok = false; break; }
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
+}

@@ -55,6 +55,39 @@ export const CONFIG = {
     walkMax: 2.1,
     fleeSpeed: 5.2,
   },
+  police: {
+    maxCars: 5,
+    maxFoot: 5,
+    spawnMin: 48,
+    spawnMax: 78,
+    carTop: 29,            // +1.5 per star; sport cars can still outrun them
+    losRange: 62,
+    shootRange: 26,
+    shootEvery: 1.5,
+    shotDamage: 6,
+    captureDist: 2.3,
+    captureTime: 2.2,
+    bustFine: 150,
+  },
+  combat: {
+    pistolDamage: 22,
+    punchDamage: 14,
+    punchRange: 2.4,
+    fireEvery: 0.3,
+    range: 60,
+    startAmmo: 24,
+    pedHp: 40,
+    copHp: 45,
+    carHp: 70,
+    pickupRadius: 1.8,
+    pickupRespawn: 45,
+    wastedFine: 60,
+  },
+  wanted: {
+    thresholds: [8, 24, 44, 68, 92], // heat needed for stars 1..5
+    escapeTime: 7,         // +1s per current star, out of police sight
+    hotWindow: 9,          // seconds after a crime that police reinforce
+  },
   render: {
     pixelRatioCap: 1.5,
     shadowMapSize: 2048,

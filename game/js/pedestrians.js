@@ -240,5 +240,5 @@ export function createPedestrians(scene, city, rngSeed) {
     rng = mulberry32(seed);
   }
 
-  return { update, triggerFlee, reset, list };
+  return { update, triggerFlee, reset, list, remove: despawn };
 }

@@ -289,7 +289,7 @@ export function createVehicleSystem(scene, city) {
     nearestEnterable(x, z, maxDist) {
       let best = null, bestD = maxDist;
       for (const v of list) {
-        if (!v.active || v.occupied || v.kind === 'player') continue;
+        if (!v.active || v.occupied || v.kind === 'player' || v.kind === 'police') continue;
         const d = Math.hypot(v.x - x, v.z - z) - v.spec.len * 0.35;
         if (d < bestD) { bestD = d; best = v; }
       }
@@ -307,9 +307,9 @@ export function createVehicleSystem(scene, city) {
         };
         updateVehiclePhysics(pc, dt, ctrl, city);
       }
-      // Abandoned / parked cars coast to a stop (traffic owns its own cars).
+      // Abandoned / parked cars coast to a stop (traffic & police own theirs).
       for (const v of list) {
-        if (v === pc || v.kind === 'traffic') continue;
+        if (v === pc || v.kind === 'traffic' || v.kind === 'police') continue;
         if (Math.abs(v.vx) + Math.abs(v.vz) > 0.01) updateVehiclePhysics(v, dt, { throttle: 0, steer: 0 }, city);
       }
       collideCars(list, player, state.mode);

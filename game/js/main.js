@@ -12,6 +12,10 @@ import { createPlayer } from './player.js';
 import { createVehicleSystem } from './vehicles.js';
 import { createTraffic } from './traffic.js';
 import { createPedestrians } from './pedestrians.js';
+import { createEffects } from './effects.js';
+import { createWanted } from './wanted.js';
+import { createPolice } from './police.js';
+import { createCombat } from './combat.js';
 
 const R = CONFIG.render;
 const canvas = document.getElementById('game');
@@ -123,8 +127,21 @@ const state = {
   mission: -1,
   objective: '',
   vehicle: null, // { type, x, z, yaw, speed, stolen } while driving
+  weapon: 'pistol',
+  ammo: 24,
+  down: null,    // 'busted' | 'wasted' while the respawn overlay is up
+  downTimer: 0,
   player: { x: player.pos.x, y: 0, z: player.pos.z, yaw: player.yaw, grounded: true, speed: 0 },
 };
+
+// ---- law + combat systems (P3) ----------------------------------------------
+const effects = createEffects(scene, city);
+const wanted = createWanted(state);
+const police = createPolice(scene, city, vehicles, peds, effects);
+const combat = createCombat({
+  scene, city, state, player, vehicles, peds, police, effects, input, camera, wanted, rig,
+  canvas, exitVehicle: () => exitVehicle(),
+});
 
 // ---- HUD skeleton updates (later phases own the real HUD) -------------------
 const hud = {
@@ -137,6 +154,8 @@ const hud = {
   hint: document.getElementById('hint'),
   start: document.getElementById('start-screen'),
   pause: document.getElementById('pause-screen'),
+  weapon: document.getElementById('weapon'),
+  crosshair: document.getElementById('crosshair'),
 };
 
 function updateHud() {
@@ -152,6 +171,10 @@ function updateHud() {
   }
   const driving = state.mode === 'driving' && state.vehicle;
   hud.speedo.style.display = driving ? 'block' : 'none';
+  const armed = state.started && !driving && !state.down;
+  hud.weapon.style.display = armed ? 'block' : 'none';
+  if (armed) hud.weapon.textContent = state.ammo > 0 ? 'PISTOL · ' + state.ammo : 'FISTS · find ammo';
+  hud.crosshair.style.display = armed && !state.paused ? 'block' : 'none';
   if (driving) {
     hud.speedo.innerHTML = Math.round(Math.abs(state.vehicle.speed) * 3.6) + ' <small>km/h</small>';
     hud.hint.textContent = 'W/S gas & brake · A/D steer · Space handbrake · E exit';
@@ -165,7 +188,7 @@ function updateHud() {
 
 // ---- enter / exit vehicles ----------------------------------------------------
 function enterVehicle(v) {
-  if (v.kind === 'traffic') v.stolen = true; // P3 turns this into wanted stars
+  if (v.kind === 'traffic') { v.stolen = true; wanted.crime(12); } // carjacking = 1 star
   v.ai = null;
   v.stun = 0;
   v.occupied = true;
@@ -222,13 +245,17 @@ function step(dt) {
   dt = clamp(dt, 0, 0.05);
   state.time += dt;
   if (!state.paused) {
-    const ctx = { city, input, state, player, vehicles, peds, time: state.time };
+    const ctx = { city, input, state, player, vehicles, peds, time: state.time, police, combat, wanted, effects };
     traffic.update(dt, ctx);
     vehicles.update(dt, ctx);
     peds.update(dt, ctx);
+    combat.update(dt, ctx);
+    police.update(dt, ctx);
+    wanted.update(dt, ctx);
+    effects.update(dt);
 
     const eDown = input.isDown('KeyE');
-    if (eDown && !prevE && state.started) handleEnterExit();
+    if (eDown && !prevE && state.started && !state.down) handleEnterExit();
     prevE = eDown;
 
     if (state.mode === 'driving' && vehicles.playerCar) {
@@ -241,14 +268,16 @@ function step(dt) {
       state.vehicle.yaw = v.yaw; state.vehicle.speed = v.speed;
       rig.updateChase(dt, v, city.colliders);
     } else {
-      player.update(dt, {
-        input,
-        cameraYaw: rig.yaw,
-        colliders: city.colliders.concat(vehicles.carBoxes),
-        groundHeightAt: city.groundHeightAt,
-        clampToWorld: city.clampToWorld,
-        state,
-      });
+      if (!state.down) {
+        player.update(dt, {
+          input,
+          cameraYaw: rig.yaw,
+          colliders: city.colliders.concat(vehicles.carBoxes),
+          groundHeightAt: city.groundHeightAt,
+          clampToWorld: city.clampToWorld,
+          state,
+        });
+      }
       rig.update(dt, player.pos, city.colliders);
     }
   }
@@ -335,9 +364,14 @@ window.__NB = {
     return false;
   },
   setWanted(n) {
-    state.wanted = clamp(Math.round(n), 0, 5); // P3 wires real police logic
+    wanted.set(n);
     updateHud();
   },
+  // P3 test helpers: deterministic combat / damage / pickup access.
+  fireWeapon() { return combat.fireWeapon(); },
+  attack() { combat.attack(); },
+  damagePlayer(n, source) { combat.damagePlayer(n, source || 'world'); },
+  collectPickups() { return combat.collectPickups(); },
   startMission(i) {
     state.mission = i;                          // P4 wires real mission logic
     state.objective = 'Mission ' + i + ' (stub — story arrives in P4)';
@@ -373,6 +407,10 @@ window.__NB = {
     state.vehicle = null;
     state.health = 100; state.armor = 0; state.cash = 0; state.wanted = 0;
     state.mission = -1; state.objective = '';
+    wanted.reset();
+    police.reset();
+    combat.reset();
+    effects.reset();
     state.player.x = player.pos.x; state.player.z = player.pos.z;
     prevE = false;
     for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'Space', 'ShiftLeft']) input.press(code, false);
@@ -385,6 +423,10 @@ window.__NB = {
   vehicles,
   traffic,
   peds,
+  police,
+  combat,
+  wanted,
+  effects,
   renderer,
   scene,
   camera,
