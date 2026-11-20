@@ -101,7 +101,7 @@ export const CONFIG = {
     sunIntensity: 2.6,
     hemiSky: 0xbfe3ff,
     hemiGround: 0xffcf9e,
-    hemiIntensity: 0.85,
+    hemiIntensity: 1.05,
   },
   palette: {
     // art-deco pastels for building bodies

@@ -1,12 +1,12 @@
-// Neon Bay entry program — Node 22+, standard library only.
-// The game itself is the static game/ folder next to this file: plain HTML +
-// ES modules a desktop browser runs fully offline (vendored three.js, no
-// network calls). This program's job is delivery, not gameplay: it copies
-// game/ and screenshots/ into the grader's output directory and writes
-// dossier.json, the file-by-file summary the judge reads, using the vendored
-// make.fun library. Run it with:
-//   node serve.ts            -> play locally at http://localhost:8080
-//   MAKEFUN_OUTPUT_DIR=out node main.ts   -> produce a submission folder
+// Neon Bay — submission packager. Node 22+, standard library only.
+// Gameplay ships as the static game/ tree beside this file: plain HTML and
+// ES modules that a desktop browser runs fully offline (three.js is vendored,
+// nothing is fetched at play time). This program only packages the entry:
+// it mirrors game/ and screenshots/ into the grader's output directory and
+// writes dossier.json, the file-by-file digest the judge reads, through the
+// vendored make.fun helper.
+//   node serve.ts                          -> play at http://localhost:8080
+//   MAKEFUN_OUTPUT_DIR=out node main.ts    -> build the submission folder
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,16 +16,20 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const repoRoot = fileURLToPath(new URL('.', import.meta.url));
 const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// Ship the playable game and its cover screenshots side by side in output/.
-mkdirSync(outputDir, { recursive: true });
-cpSync(join(repoRoot, 'game'), join(outputDir, 'game'), { recursive: true });
-mkdirSync(join(outputDir, 'screenshots'), { recursive: true });
-const shotsDir = join(repoRoot, 'screenshots');
-if (existsSync(shotsDir)) cpSync(shotsDir, join(outputDir, 'screenshots'), { recursive: true });
+// Mirror one repo folder into the output tree, skipping it when absent.
+function ship(folder: string) {
+  const src = join(repoRoot, folder);
+  if (!existsSync(src)) return;
+  cpSync(src, join(outputDir, folder), { recursive: true });
+}
 
-// Mirror the scorer's gate caps exactly so the dossier never describes an
-// entry the scorer would refuse: 160 KiB of source text, at most 4 screenshots
-// of 256 KiB each, and a game/ tree within 993 files / 48 MiB / 1000-byte paths.
+mkdirSync(outputDir, { recursive: true });
+ship('game');
+ship('screenshots');
+
+// Keep the dossier inside the scorer's gate caps so it never describes an
+// entry the scorer would refuse: 160 KiB of source text, up to 4 screenshots
+// at 256 KiB each, and a game/ tree within 993 files / 48 MiB / 1000-byte paths.
 const dossier = buildDossier(outputDir, {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },

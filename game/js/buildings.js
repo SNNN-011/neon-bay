@@ -16,7 +16,9 @@ export function createBuildings(scene, specs, rng) {
   const bodyMat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.02 });
   const trimMat = new THREE.MeshBasicMaterial();           // unlit accent bands read as neon trim
   const winMat = new THREE.MeshBasicMaterial();            // lit windows, unlit = emissive look
-  const neonMat = new THREE.MeshBasicMaterial();
+  // toneMapped:false keeps neon at full saturation instead of letting ACES
+  // wash it out — the signs read as lit tubes against the pastel facades.
+  const neonMat = new THREE.MeshBasicMaterial({ toneMapped: false });
 
   const unit = new THREE.BoxGeometry(1, 1, 1);
   const bodies = new THREE.InstancedMesh(unit, bodyMat, n);
@@ -110,7 +112,7 @@ export function createBuildings(scene, specs, rng) {
     dummy.scale.set(s.w, s.h, 0.18);
     dummy.updateMatrix();
     signMesh.setMatrixAt(i, dummy.matrix);
-    signMesh.setColorAt(i, tmpColor.setHex(s.color));
+    signMesh.setColorAt(i, tmpColor.setHex(s.color).multiplyScalar(1.6));
   }
 
   for (const m of [bodies, tops, trims, winMesh, signMesh]) {

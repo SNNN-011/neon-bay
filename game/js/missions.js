@@ -15,7 +15,7 @@ export function createMissions(deps) {
     );
     col.position.y = 3.5;
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.5), new THREE.MeshBasicMaterial({ color }));
-    gem.position.y = 7.3;
+    gem.position.y = 7.12; // seated on the column tip, not hovering above it
     g.add(col, gem);
     g.visible = false;
     g.userData.gem = gem;
@@ -31,7 +31,7 @@ export function createMissions(deps) {
   function spinBeacons(t) {
     for (const b of [beacon, giverBeacon]) if (b.visible) {
       b.userData.gem.rotation.y = t * 2;
-      b.userData.gem.position.y = 7.3 + Math.sin(t * 3) * 0.2;
+      b.userData.gem.position.y = 7.12 + Math.sin(t * 3) * 0.12;
     }
   }
   function removeGiver() {

@@ -56,16 +56,20 @@ export function buildCity(scene) {
 
   const ocean = new THREE.Mesh(
     new THREE.BoxGeometry(440, 0.6, 660),
-    new THREE.MeshStandardMaterial({ color: P.ocean, roughness: 0.3, metalness: 0.15 })
+    // low metalness + faint emissive: without an env map, metal water goes
+    // black at grazing angles; this keeps the bay teal through golden hour.
+    new THREE.MeshStandardMaterial({ color: 0x37b4cc, roughness: 0.18, metalness: 0.02, emissive: 0x0a3d4a, emissiveIntensity: 0.4 })
   );
-  ocean.position.set(C.oceanStart + 220, -0.4, 0);
+  // waterline sits ABOVE the ground slab (top y=0) or the bay renders as
+  // bare dirt; 0.06 keeps it just under the sand lip (0.08).
+  ocean.position.set(C.oceanStart + 220, -0.24, 0);
   scene.add(ocean);
 
   const foam = new THREE.Mesh(
     new THREE.BoxGeometry(1.6, 0.1, 320),
     new THREE.MeshBasicMaterial({ color: 0xf7f3e8 })
   );
-  foam.position.set(C.oceanStart, -0.02, 0);
+  foam.position.set(C.oceanStart, 0.07, 0);
   scene.add(foam);
 
   const asphaltMat = new THREE.MeshStandardMaterial({ color: P.asphalt, roughness: 0.95 });

@@ -75,6 +75,12 @@ scene.add(sky);
 const hemi = new THREE.HemisphereLight(R.hemiSky, R.hemiGround, R.hemiIntensity);
 scene.add(hemi);
 
+// Cool fill from the anti-sun side: facades facing away from the golden-hour
+// sun stay readable from aerial angles instead of going flat dark.
+const fill = new THREE.DirectionalLight(0x8fb8e8, 0.55);
+fill.position.set(-60, 48, -55);
+scene.add(fill);
+
 const sun = new THREE.DirectionalLight(R.sunColor, R.sunIntensity);
 sun.castShadow = true;
 sun.shadow.mapSize.set(R.shadowMapSize, R.shadowMapSize);
@@ -84,7 +90,10 @@ sun.shadow.camera.top = R.shadowRadius;
 sun.shadow.camera.bottom = -R.shadowRadius;
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 320;
-sun.shadow.bias = -0.0006;
+// Small depth bias + normal bias: kills acne without the detached/"floating"
+// player shadow a large negative bias produces.
+sun.shadow.bias = -0.00015;
+sun.shadow.normalBias = 0.035;
 scene.add(sun);
 scene.add(sun.target);
 const sunOffset = new THREE.Vector3(70, 95, 45);
@@ -203,8 +212,8 @@ function handleEnterExit() {
 
 function step(dt) {
   dt = clamp(dt, 0, 0.05);
-  state.time += dt;
   if (!state.paused) {
+    state.time += dt; // pause freezes the world clock too (beacons, lightbars, signals)
     const ctx = { city, input, state, player, vehicles, peds, time: state.time, police, combat, wanted, effects };
     traffic.update(dt, ctx);
     vehicles.update(dt, ctx);
