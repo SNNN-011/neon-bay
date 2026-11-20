@@ -1,6 +1,4 @@
-// Neon Bay — stylized effects: pooled skid-mark decals, low-poly particles
-// (smoke / debris / sparks), bullet tracers and a brief muzzle-flash light.
-// Everything lives in three InstancedMeshes + one PointLight: 3 draw calls.
+// Neon Bay — stylized effects: pooled skid decals, particles, tracers and muzzle flashes.
 
 import * as THREE from 'three';
 

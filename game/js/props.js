@@ -1,5 +1,4 @@
 // Neon Bay — street props: palm trees, street lamps and parked cars.
-// Everything is instanced; parked cars also register static colliders.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';

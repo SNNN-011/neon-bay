@@ -1,7 +1,4 @@
-// Neon Bay — Neon Bay PD: pooled patrol cars that chase and ram, and foot
-// officers that pursue and shoot when Riko is on foot. Cars spawn only in the
-// "hot" window after a crime; out of sight they search the last known spot.
-// Close + sustained contact on foot = capture -> BUSTED (handled by combat).
+// Neon Bay — Neon Bay PD: patrol cars that chase and ram, foot officers that shoot; capture leads to BUSTED.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -142,8 +139,6 @@ export function createPolice(scene, city, vehicles, peds, effects) {
     return false;
   }
 
-  // Pursuit routing: go direct when the line is clear, otherwise follow the
-  // road grid (Manhattan-style) so cruisers never wedge into a city block.
   const lines = city.roads.lines;
   const nearestLine = (v) => lines.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
   function routeAim(v, tx, tz) {
@@ -165,7 +160,6 @@ export function createPolice(scene, city, vehicles, peds, effects) {
     const focus = state.mode === 'driving' && vehicles.playerCar ? vehicles.playerCar : player.pos;
     const level = state.wanted;
 
-    // Line of sight from any unit (previous positions) decides escape + targets.
     sys.seesPlayer = false;
     if (level > 0 && !state.down) {
       for (const v of cars) {
@@ -195,7 +189,6 @@ export function createPolice(scene, city, vehicles, peds, effects) {
       }
       if (reinforce) for (let a = 0; a < 6 && foot.length < wantFoot; a++) spawnFoot(sys.seesPlayer ? focus : wanted.crimePos);
 
-      // ---- patrol cars: pursue, avoid buildings, ram up close ----
       for (const v of cars) {
         v.cd = Math.max(0, v.cd - dt);
         if (sys.seesPlayer) { v.tx = focus.x; v.tz = focus.z; }
@@ -243,7 +236,6 @@ export function createPolice(scene, city, vehicles, peds, effects) {
         }
       }
 
-      // ---- foot officers: close in, shoot on sight, arrest up close ----
       for (const c of foot) {
         if (sys.seesPlayer) { c.tx = player.pos.x; c.tz = player.pos.z; }
         const dx = c.tx - c.x, dz = c.tz - c.z;
@@ -278,7 +270,6 @@ export function createPolice(scene, city, vehicles, peds, effects) {
         }
       }
 
-      // ---- capture: sustained close contact on foot ----
       if (state.mode === 'onfoot' && level > 0) {
         let near = false;
         for (const c of foot) if (Math.hypot(c.x - player.pos.x, c.z - player.pos.z) < PL.captureDist) { near = true; break; }

@@ -1,5 +1,4 @@
-// Neon Bay — third-person camera rig: mouse-look orbit, smooth follow,
-// simple building avoidance, and fixed poses for screenshots.
+// Neon Bay — third-person camera rig: mouse-look orbit, smooth follow, chase cam and screenshot poses.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -70,7 +69,6 @@ export function createCameraRig(camera, input) {
     camera.lookAt(rig.look);
   };
 
-  // Driving chase cam: hangs behind the car, stretches with speed and looks
   // ahead down the road. Mouse still adjusts pitch (and a little orbit).
   rig.updateChase = function (dt, car, colliders) {
     const m = input.consumeMouse();

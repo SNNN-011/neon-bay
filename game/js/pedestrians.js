@@ -1,7 +1,4 @@
-// Neon Bay — pedestrians: low-poly townsfolk who stroll the sidewalk rings
-// around each block, pause at corners, and flee from fast cars (or anything
-// combat triggers via triggerFlee). Rendered as six InstancedMeshes with a
-// procedural walk cycle; spawn/despawn keeps ~20 active around the player.
+// Neon Bay — pedestrians: instanced townsfolk strolling sidewalk rings, fleeing threats; spawnAt for NPCs.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -99,6 +96,26 @@ export function createPedestrians(scene, city, rngSeed) {
     arms.setMatrixAt(p.slot * 2 + 1, zero);
   }
 
+  // drives them); opts = { shirt, pants, hold, yaw }.
+  function spawnAt(x, z, opts = {}) {
+    if (!freeSlots.length) return null;
+    const p = {
+      x, z, y: city.groundHeightAt(x, z), yaw: opts.yaw || 0, phase: 0, speed: 1.6,
+      cx: 0, cz: 0, ci: 0, cw: 1, pause: 0, flee: 0, fleeX: 0, fleeZ: 0,
+      kx: 0, kz: 0, slot: freeSlots.pop(), active: true, hold: !!opts.hold,
+    };
+    list.push(p);
+    const shirt = opts.shirt || 0xffc36b, pant = opts.pants || 0x35304f;
+    torsos.setColorAt(p.slot, tmpColor.setHex(shirt));
+    heads.setColorAt(p.slot, tmpColor.setHex(0xe8b48c));
+    arms.setColorAt(p.slot * 2, tmpColor.setHex(shirt));
+    arms.setColorAt(p.slot * 2 + 1, tmpColor.setHex(shirt));
+    legs.setColorAt(p.slot * 2, tmpColor.setHex(pant));
+    legs.setColorAt(p.slot * 2 + 1, tmpColor.setHex(pant));
+    for (const m of meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    return p;
+  }
+
   // Combat / explosions call this to scatter everyone in a radius.
   function triggerFlee(x, z, radius, duration = 4) {
     for (const p of list) {
@@ -109,6 +126,7 @@ export function createPedestrians(scene, city, rngSeed) {
   }
 
   function startFlee(p, ax, az, duration) {
+    if (p.hold) return; // mission givers / enemies stand their ground
     const d = Math.hypot(ax, az) || 1;
     // Run away from the threat with a slight sideways jink.
     const jink = (rng() - 0.5) * 0.9;
@@ -125,7 +143,7 @@ export function createPedestrians(scene, city, rngSeed) {
 
     for (let i = list.length - 1; i >= 0; i--) {
       const p = list[i];
-      if (Math.hypot(p.x - focus.x, p.z - focus.z) > P.despawn) despawn(p);
+      if (!p.hold && Math.hypot(p.x - focus.x, p.z - focus.z) > P.despawn) despawn(p);
     }
     for (let a = 0; a < 6 && list.length < P.count; a++) spawn(focus);
 
@@ -154,6 +172,7 @@ export function createPedestrians(scene, city, rngSeed) {
         }
       }
 
+      if (p.hold) { p.y = city.groundHeightAt(p.x, p.z); continue; } // missions.js drives these
       let mx = 0, mz = 0, spd = 0;
       if (p.flee > 0) {
         p.flee -= dt;
@@ -240,5 +259,5 @@ export function createPedestrians(scene, city, rngSeed) {
     rng = mulberry32(seed);
   }
 
-  return { update, triggerFlee, reset, list, remove: despawn };
+  return { update, triggerFlee, reset, list, remove: despawn, spawnAt };
 }

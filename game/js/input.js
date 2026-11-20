@@ -1,5 +1,4 @@
-// Neon Bay — keyboard + mouse state. Pointer lock drives the look direction;
-// press() lets the deterministic test hook simulate keys without real events.
+// Neon Bay — keyboard + mouse state; pointer lock drives look, press() feeds the deterministic test hook.
 
 export function createInput(canvas) {
   const keys = Object.create(null);

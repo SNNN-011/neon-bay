@@ -1,6 +1,4 @@
-// Neon Bay — art-deco building factory. All buildings render as a handful of
-// InstancedMeshes (body, setback top, trim band, windows, neon) so the whole
-// downtown costs ~5 draw calls. Returns AABB colliders for the player.
+// Neon Bay — art-deco building factory: pastel bodies, neon trim, instanced for a handful of draw calls.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';

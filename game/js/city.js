@@ -1,7 +1,4 @@
-// Neon Bay — city layout: road grid with sidewalks, downtown blocks, alleys,
-// parking lots, plazas, the beach, ocean and a pier on the east side.
-// Static geometry is instanced; the module also owns walkable-ground heights
-// and world bounds so the player (and later vehicles) can query them.
+// Neon Bay — city layout: road grid, sidewalks, downtown blocks, alleys, plazas, beach, ocean and pier.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -41,7 +38,6 @@ export function buildCity(scene) {
   const cellCenters = [];
   for (let i = 0; i < C.gridHalf * 2; i++) cellCenters.push(-100 + i * C.blockPitch);
 
-  // ---- base ground, beach and ocean -------------------------------------
   const ground = new THREE.Mesh(
     new THREE.BoxGeometry(640, 1, 640),
     new THREE.MeshStandardMaterial({ color: 0x93887a, roughness: 1 })
@@ -72,7 +68,6 @@ export function buildCity(scene) {
   foam.position.set(C.oceanStart, -0.02, 0);
   scene.add(foam);
 
-  // ---- roads: vertical strips full length, horizontal segments between --
   const asphaltMat = new THREE.MeshStandardMaterial({ color: P.asphalt, roughness: 0.95 });
   const roadItems = [];
   for (const x of lines) roadItems.push({ x, y: 0.04, z: 0, sx: C.roadWidth, sy: 0.08, sz: C.cityEdge * 2 });
@@ -84,7 +79,6 @@ export function buildCity(scene) {
   }
   instancedBoxes(scene, 1, 1, 1, asphaltMat, roadItems, { receive: true });
 
-  // ---- lane dashes + crosswalks ------------------------------------------
   const dashItems = [];
   const nearLine = (v) => lines.some((l) => Math.abs(v - l) < 9);
   for (const x of lines) {
@@ -111,7 +105,6 @@ export function buildCity(scene) {
   }
   instancedBoxes(scene, 1, 1, 1, new THREE.MeshBasicMaterial(), walkItems);
 
-  // ---- sidewalk plinths + block contents ---------------------------------
   const plinthItems = [];
   const specs = [];
   const palms = [];
@@ -177,7 +170,6 @@ export function buildCity(scene) {
   const buildings = createBuildings(scene, specs, rng);
   colliders.push(...buildings.colliders);
 
-  // ---- pier ---------------------------------------------------------------
   const pier = C.pier;
   const woodMat = new THREE.MeshStandardMaterial({ color: 0xb08a63, roughness: 0.9 });
   const deck = new THREE.Mesh(new THREE.BoxGeometry(pier.x1 - pier.x0, 0.2, pier.halfWidth * 2), woodMat);
@@ -208,7 +200,6 @@ export function buildCity(scene) {
     scene.add(rail);
   }
 
-  // ---- palms + street lamps ----------------------------------------------
   for (let z = -140; z <= 140; z += 16) {
     palms.push({ x: 134 + randRange(rng, -2, 2), z, scale: randRange(rng, 0.85, 1.25), leanX: randRange(rng, -0.1, 0.1), leanZ: randRange(rng, -0.12, 0.02) });
   }
@@ -229,7 +220,6 @@ export function buildCity(scene) {
   const cars = createParkedCars(scene, parkedCars, rng);
   colliders.push(...cars.colliders);
 
-  // ---- walkable ground + world bounds ------------------------------------
   function groundHeightAt(x, z) {
     if (Math.abs(z - pier.z) <= pier.halfWidth) {
       if (x >= pier.x0 && x <= pier.x1) return pier.deckY;

@@ -1,7 +1,4 @@
-// Neon Bay — combat: punch up close, pistol aimed through the crosshair
-// (camera ray, works with or without pointer lock), health + armor, rotating
-// pickups, and the BUSTED / WASTED down-and-respawn flow. Hits feed the wanted
-// system; shots scatter pedestrians via triggerFlee.
+// Neon Bay — combat: melee punch, crosshair-aimed pistol, health/armor, pickups, BUSTED/WASTED respawn.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -38,7 +35,7 @@ function rayBox(ox, oy, oz, dx, dy, dz, b) {
 }
 
 export function createCombat(deps) {
-  const { scene, city, state, player, vehicles, peds, police, effects, input, camera, wanted, rig, exitVehicle } = deps;
+  const { scene, city, state, player, vehicles, peds, police, effects, input, camera, wanted, rig, exitVehicle, audio } = deps;
   const canvas = deps.canvas;
   const tall = city.colliders.filter((b) => b.height > 3);
   const bustedEl = document.getElementById('busted-screen');
@@ -47,7 +44,6 @@ export function createCombat(deps) {
   state.weapon = 'pistol';
   state.ammo = CB.startAmmo;
 
-  // ---- pickups: deterministic spots on sidewalk corners around the grid ----
   const prng = mulberry32(99);
   const pickups = [];
   const types = ['ammo', 'health', 'ammo', 'armor'];
@@ -83,6 +79,7 @@ export function createCombat(deps) {
     if (p.type === 'ammo') state.ammo = Math.min(99, state.ammo + 12);
     else if (p.type === 'health') state.health = Math.min(100, state.health + 30);
     else state.armor = Math.min(100, state.armor + 50);
+    audio.pickup();
     effects.burst(p.x, p.y + 1, p.z, { n: 6, color: PICKUP_COLORS[p.type], speed: 3, size: 0.12, life: 0.4, up: 2.5 });
   }
 
@@ -111,6 +108,7 @@ export function createCombat(deps) {
     if (state.mode === 'driving') exitVehicle();
     state.down = kind;
     state.downTimer = 2.6;
+    audio.down();
     const fine = kind === 'busted' ? CONFIG.police.bustFine + state.wanted * 40 : CB.wastedFine;
     state.downFine = Math.min(state.cash, fine);
     const el = kind === 'busted' ? bustedEl : wastedEl;
@@ -138,7 +136,6 @@ export function createCombat(deps) {
     rig.initialized = false;
   }
 
-  // ---- attacks -------------------------------------------------------------
   function hurtPed(p, dmg, kx, kz) {
     if (p.hp === undefined) p.hp = CB.pedHp;
     p.hp -= dmg;
@@ -185,6 +182,7 @@ export function createCombat(deps) {
     player.yaw = Math.atan2(dx, dz);
     if (best.kind === 'ped') hurtPed(o, CB.punchDamage, (dx / d) * 6, (dz / d) * 6);
     else hurtCop(o, CB.punchDamage);
+    audio.punch();
     peds.triggerFlee(player.pos.x, player.pos.z, 14);
     fireCd = 0.35;
     return true;
@@ -193,6 +191,7 @@ export function createCombat(deps) {
   function fire() {
     if (state.ammo <= 0 || fireCd > 0) return false;
     state.ammo--;
+    audio.shot();
     fireCd = CB.fireEvery;
     camera.getWorldDirection(aimDir);
     const ox = camera.position.x, oy = camera.position.y, oz = camera.position.z;
@@ -252,7 +251,6 @@ export function createCombat(deps) {
       }
     }
 
-    // ---- pickups spin / bob / respawn / collect ----
     spin += dt * 2.2;
     const focus = state.mode === 'driving' && vehicles.playerCar ? vehicles.playerCar : player.pos;
     for (let i = 0; i < pickups.length; i++) {
@@ -272,7 +270,6 @@ export function createCombat(deps) {
     }
     pickMesh.instanceMatrix.needsUpdate = true;
 
-    // ---- running people over / ramming police while driving ----
     const pc = vehicles.playerCar;
     if (state.mode === 'driving' && pc) {
       const sp = Math.hypot(pc.vx, pc.vz);
@@ -301,7 +298,6 @@ export function createCombat(deps) {
           break;
         }
       }
-      // ---- skid marks: handbrake or big lateral slip ----
       const lat = -pc.vx * Math.cos(pc.yaw) + pc.vz * Math.sin(pc.yaw);
       if ((input.isDown('Space') && sp > 6) || Math.abs(lat) > 4.5) {
         skidTimer -= dt;
@@ -310,7 +306,6 @@ export function createCombat(deps) {
           effects.skid(pc.x, pc.z, pc.yaw);
         }
       }
-      // ---- damaged cars smoke ----
       if (pc.hp !== undefined && pc.hp < 30) {
         smokeTimer -= dt;
         if (smokeTimer <= 0) {

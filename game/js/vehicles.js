@@ -1,8 +1,4 @@
-// Neon Bay — vehicles: original low-poly car factory (sedan / sport / van /
-// pickup), arcade driving physics (accel, brake, steer, handbrake drift) and
-// collision against buildings, other cars and the player. Every car that is
-// not currently driven by the player renders through shared InstancedMeshes;
-// the player's car swaps to a detailed mesh so it reads up close.
+// Neon Bay — vehicles: low-poly car factory, arcade physics, collisions, instanced fleet + player mesh.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -20,7 +16,6 @@ export const randomCarType = (rng) => pick(rng, TYPE_NAMES);
 const WHEEL_R = 0.34;
 const BODY_Y = 0.32; // chassis ride height above ground
 
-// Detailed mesh for the car the player is inside (~10 draw calls, one car).
 export function createVehicleMesh(type, color) {
   const s = VEHICLE_TYPES[type] || VEHICLE_TYPES.sedan;
   const g = new THREE.Group();
@@ -55,8 +50,6 @@ function wheelOffsets(s) {
   return [[-ox, oz], [ox, oz], [-ox, -oz], [ox, -oz]];
 }
 
-// Two-circle footprint (front + rear) approximates the car's oriented box
-// much better than one fat circle, so adjacent lanes don't phantom-collide.
 export function carCircles(v) {
   const s = v.spec;
   const r = s.wid * 0.55;
@@ -68,9 +61,6 @@ export function carCircles(v) {
   ];
 }
 
-// Arcade physics: velocity is split into forward / lateral components in the
-// car's frame. Engine and brake act forward; lateral grip decays slip — the
-// handbrake drops grip so the tail slides. Yaw rotates AFTER the velocity is
 // recomposed, which is what produces the drift feel.
 export function updateVehiclePhysics(v, dt, ctrl, city) {
   const s = v.spec;
@@ -102,7 +92,6 @@ export function updateVehiclePhysics(v, dt, ctrl, city) {
   v.z += v.vz * dt;
   v.speed = f;
 
-  // Buildings / parked cars / plaza props: resolve both footprint circles.
   const ox = v.x, oz = v.z;
   v.impact = 0;
   for (const c of carCircles(v)) {
@@ -130,7 +119,6 @@ export function updateVehiclePhysics(v, dt, ctrl, city) {
   return v.impact;
 }
 
-// Car-vs-car impulse (two-circle footprints) + knockback on the on-foot player.
 function collideCars(list, player, mode) {
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
@@ -199,7 +187,6 @@ export function createVehicleSystem(scene, city) {
   for (let i = MAX_INSTANCES - 1; i >= 0; i--) freeSlots.push(i);
   let nextId = 1;
 
-  // Shared instanced parts: the whole non-player fleet costs 5 draw calls.
   const unit = new THREE.BoxGeometry(1, 1, 1);
   const wheelGeo = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.24, 10);
   wheelGeo.rotateZ(Math.PI / 2);
@@ -307,7 +294,6 @@ export function createVehicleSystem(scene, city) {
         };
         updateVehiclePhysics(pc, dt, ctrl, city);
       }
-      // Abandoned / parked cars coast to a stop (traffic & police own theirs).
       for (const v of list) {
         if (v === pc || v.kind === 'traffic' || v.kind === 'police') continue;
         if (Math.abs(v.vx) + Math.abs(v.vz) > 0.01) updateVehiclePhysics(v, dt, { throttle: 0, steer: 0 }, city);

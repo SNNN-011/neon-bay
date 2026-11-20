@@ -1,5 +1,4 @@
 // Neon Bay — wanted system: crimes add heat, heat maps to 1-5 stars.
-// Escape = no police line-of-sight for a cooldown, then stars drop one by one.
 
 import { CONFIG } from './config.js';
 import { clamp } from './util.js';
@@ -15,8 +14,6 @@ export function createWanted(state) {
     return n;
   }
 
-  // A crime: heat up, refresh the reinforcement window, reset escape progress.
-  // Dispatch goes to where the crime happened, not where the player runs to.
   sys.crime = (points) => {
     sys.heat = clamp(sys.heat + points, 0, 100);
     sys.escape = 0;
@@ -26,7 +23,6 @@ export function createWanted(state) {
     state.wanted = level();
   };
 
-  // Direct set (test hook / mission scripts): spawns police via the hot window.
   sys.set = (n) => {
     n = clamp(Math.round(n), 0, 5);
     sys.heat = n === 0 ? 0 : W.thresholds[n - 1] + 2;

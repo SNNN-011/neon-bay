@@ -34,7 +34,6 @@ export function makeBox(cx, cz, w, d, height) {
   return { minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, height };
 }
 
-// Push a circle (x, z, radius) out of every box it overlaps. Mutates pos {x, z}.
 // Returns true if any correction happened.
 export function resolveCircleVsBoxes(pos, radius, boxes) {
   let hit = false;

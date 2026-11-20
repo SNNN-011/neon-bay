@@ -1,7 +1,4 @@
-// Neon Bay — traffic AI: cars follow right-hand lanes on the road grid,
-// signal-controlled intersections (NS / EW alternate), turn at junctions,
-// avoid cars / the player / pedestrians ahead, and spawn/despawn around the
-// player through the vehicle system's instanced slot pool.
+// Neon Bay — traffic AI: right-hand lanes, signalized intersections, turns, avoidance, spawn/despawn pool.
 
 import { CONFIG } from './config.js';
 import { clamp, mulberry32, randRange, randInt, pick } from './util.js';
@@ -10,7 +7,6 @@ import { updateVehiclePhysics, randomCarType } from './vehicles.js';
 const T = CONFIG.traffic;
 const C = CONFIG.city;
 
-// 0: -z, 1: +z, 2: +x, 3: -x. Right-hand traffic keeps +3m to the right.
 const DIRS = [{ dx: 0, dz: -1 }, { dx: 0, dz: 1 }, { dx: 1, dz: 0 }, { dx: -1, dz: 0 }];
 const RIGHT_TURN = [2, 3, 1, 0];
 const LEFT_TURN = [3, 2, 0, 1];
@@ -74,7 +70,7 @@ export function createTraffic(vehicles, city, rngSeed) {
     // Despawn far cars, top up the pool near the player.
     for (let i = vehicles.list.length - 1; i >= 0; i--) {
       const v = vehicles.list[i];
-      if (v.kind === 'traffic' && Math.hypot(v.x - focus.x, v.z - focus.z) > T.despawn) vehicles.despawn(v);
+      if (v.kind === 'traffic' && !v.missionCar && Math.hypot(v.x - focus.x, v.z - focus.z) > T.despawn) vehicles.despawn(v);
     }
     let count = 0;
     for (const v of vehicles.list) if (v.kind === 'traffic') count++;
@@ -108,7 +104,7 @@ export function createTraffic(vehicles, city, rngSeed) {
         if (distToStop > -2 && distToStop < 28) {
           const ix = horizontal ? nextI : ai.road;
           const iz = horizontal ? ai.road : nextI;
-          let clear = isGreen(ai.dir, time);
+          let clear = v.missionCar || isGreen(ai.dir, time); // fleeing mission van runs reds
           if (clear) {
             for (const c of vehicles.list) {
               if (c === v || !c.active) continue;

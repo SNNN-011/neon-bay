@@ -1,5 +1,4 @@
-// Neon Bay — Riko, the player character: low-poly humanoid, on-foot movement
-// (WASD + sprint + jump), gravity, static collision and a simple walk cycle.
+// Neon Bay — Riko, the player character: low-poly humanoid, on-foot movement, sprint, jump, collision.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -23,7 +22,6 @@ export function createPlayer(scene) {
     return m;
   }
 
-  // Limb geometries pivot at the hip / shoulder so rotation swings naturally.
   const legGeo = new THREE.BoxGeometry(0.22, 0.78, 0.24);
   legGeo.translate(0, -0.39, 0);
   const armGeo = new THREE.BoxGeometry(0.16, 0.62, 0.18);
