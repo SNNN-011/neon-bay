@@ -262,6 +262,7 @@ export function buildCity(scene) {
     clampToWorld,
     roads: { lines, width: C.roadWidth, edge: C.cityEdge },
     cellCenters,
+    cellKind,
     pier,
   };
 }

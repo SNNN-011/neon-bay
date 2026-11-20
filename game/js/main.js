@@ -4,11 +4,14 @@
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { clamp } from './util.js';
+import { clamp, resolveCircleVsBoxes } from './util.js';
 import { createInput } from './input.js';
 import { createCameraRig } from './camera.js';
 import { buildCity } from './city.js';
 import { createPlayer } from './player.js';
+import { createVehicleSystem } from './vehicles.js';
+import { createTraffic } from './traffic.js';
+import { createPedestrians } from './pedestrians.js';
 
 const R = CONFIG.render;
 const canvas = document.getElementById('game');
@@ -87,6 +90,26 @@ const city = buildCity(scene);
 const input = createInput(canvas);
 const player = createPlayer(scene);
 const rig = createCameraRig(camera, input);
+const vehicles = createVehicleSystem(scene, city);
+const traffic = createTraffic(vehicles, city, 90210);
+const peds = createPedestrians(scene, city, 4242);
+
+// A few enterable cars near the spawn: one at the curb, two in parking lots.
+function spawnStarterCars() {
+  vehicles.spawn({ type: 'sport', color: 0xff5f9e, x: 4.6, z: 24, yaw: 0, kind: 'parked' });
+  const lots = [];
+  for (const key in city.cellKind) {
+    if (city.cellKind[key] !== 'parking') continue;
+    const [i, j] = key.split(',').map(Number);
+    const cx = city.cellCenters[i], cz = city.cellCenters[j];
+    lots.push({ cx, cz, d: Math.hypot(cx - CONFIG.player.spawn.x, cz - CONFIG.player.spawn.z) });
+  }
+  lots.sort((a, b) => a.d - b.d);
+  for (const lot of lots.slice(0, 2)) {
+    vehicles.spawn({ type: 'sedan', x: lot.cx, z: lot.cz, yaw: 0, kind: 'parked' });
+  }
+}
+spawnStarterCars();
 
 const state = {
   started: false,
@@ -99,6 +122,7 @@ const state = {
   wanted: 0,
   mission: -1,
   objective: '',
+  vehicle: null, // { type, x, z, yaw, speed, stolen } while driving
   player: { x: player.pos.x, y: 0, z: player.pos.z, yaw: player.yaw, grounded: true, speed: 0 },
 };
 
@@ -109,6 +133,8 @@ const hud = {
   cash: document.getElementById('cash'),
   stars: Array.from(document.querySelectorAll('#wanted .star')),
   objective: document.getElementById('objective'),
+  speedo: document.getElementById('speedo'),
+  hint: document.getElementById('hint'),
   start: document.getElementById('start-screen'),
   pause: document.getElementById('pause-screen'),
 };
@@ -124,6 +150,71 @@ function updateHud() {
   } else {
     hud.objective.style.display = 'none';
   }
+  const driving = state.mode === 'driving' && state.vehicle;
+  hud.speedo.style.display = driving ? 'block' : 'none';
+  if (driving) {
+    hud.speedo.innerHTML = Math.round(Math.abs(state.vehicle.speed) * 3.6) + ' <small>km/h</small>';
+    hud.hint.textContent = 'W/S gas & brake · A/D steer · Space handbrake · E exit';
+  } else {
+    const near = vehicles.nearestEnterable(player.pos.x, player.pos.z, CONFIG.vehicle.enterDist);
+    hud.hint.textContent = near
+      ? 'Press E to enter the ' + near.type + (near.kind === 'traffic' ? ' (steal)' : '')
+      : 'WASD move · Shift sprint · Space jump · mouse look';
+  }
+}
+
+// ---- enter / exit vehicles ----------------------------------------------------
+function enterVehicle(v) {
+  if (v.kind === 'traffic') v.stolen = true; // P3 turns this into wanted stars
+  v.ai = null;
+  v.stun = 0;
+  v.occupied = true;
+  v.kind = 'player';
+  vehicles.playerCar = v;
+  vehicles.attachPlayerMesh(v);
+  state.mode = 'driving';
+  state.vehicle = { type: v.type, x: v.x, z: v.z, yaw: v.yaw, speed: 0, stolen: v.stolen };
+  player.group.visible = false;
+  player.knockX = player.knockZ = 0;
+  rig.initialized = false;
+}
+
+function exitVehicle() {
+  const v = vehicles.playerCar;
+  if (!v) return;
+  const s = v.spec;
+  // Step out on the left side; resolve against the world (not our own car).
+  const lx = -(s.wid / 2 + 0.9);
+  const pos = {
+    x: v.x + lx * Math.cos(v.yaw),
+    z: v.z - lx * Math.sin(v.yaw),
+  };
+  const boxes = city.colliders.concat(vehicles.carBoxes.filter((b) => {
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    return Math.hypot(cx - v.x, cz - v.z) > 0.5;
+  }));
+  resolveCircleVsBoxes(pos, CONFIG.player.radius, boxes);
+  city.clampToWorld(pos);
+  player.pos.set(pos.x, city.groundHeightAt(pos.x, pos.z), pos.z);
+  player.vy = 0;
+  player.grounded = true;
+  player.yaw = v.yaw;
+  player.group.visible = true;
+  v.occupied = false;
+  v.kind = 'parked';
+  v.vx = v.vz = v.speed = 0;
+  vehicles.detachPlayerMesh(v);
+  vehicles.playerCar = null;
+  state.mode = 'onfoot';
+  state.vehicle = null;
+  rig.initialized = false;
+}
+
+let prevE = false;
+function handleEnterExit() {
+  if (state.mode === 'driving') { exitVehicle(); return; }
+  const v = vehicles.nearestEnterable(player.pos.x, player.pos.z, CONFIG.vehicle.enterDist);
+  if (v) enterVehicle(v);
 }
 
 // ---- simulation step (shared by the rAF loop and the __NB hook) -------------
@@ -131,19 +222,40 @@ function step(dt) {
   dt = clamp(dt, 0, 0.05);
   state.time += dt;
   if (!state.paused) {
-    player.update(dt, {
-      input,
-      cameraYaw: rig.yaw,
-      colliders: city.colliders,
-      groundHeightAt: city.groundHeightAt,
-      clampToWorld: city.clampToWorld,
-      state,
-    });
-    rig.update(dt, player.pos, city.colliders);
+    const ctx = { city, input, state, player, vehicles, peds, time: state.time };
+    traffic.update(dt, ctx);
+    vehicles.update(dt, ctx);
+    peds.update(dt, ctx);
+
+    const eDown = input.isDown('KeyE');
+    if (eDown && !prevE && state.started) handleEnterExit();
+    prevE = eDown;
+
+    if (state.mode === 'driving' && vehicles.playerCar) {
+      const v = vehicles.playerCar;
+      player.pos.set(v.x, v.y, v.z);
+      state.player.x = v.x; state.player.y = v.y; state.player.z = v.z;
+      state.player.yaw = v.yaw; state.player.grounded = true;
+      state.player.speed = Math.hypot(v.vx, v.vz);
+      state.vehicle.x = v.x; state.vehicle.z = v.z;
+      state.vehicle.yaw = v.yaw; state.vehicle.speed = v.speed;
+      rig.updateChase(dt, v, city.colliders);
+    } else {
+      player.update(dt, {
+        input,
+        cameraYaw: rig.yaw,
+        colliders: city.colliders.concat(vehicles.carBoxes),
+        groundHeightAt: city.groundHeightAt,
+        clampToWorld: city.clampToWorld,
+        state,
+      });
+      rig.update(dt, player.pos, city.colliders);
+    }
   }
-  // Keep the shadow frustum and sky centered on the player.
-  sun.position.copy(player.pos).add(sunOffset);
-  sun.target.position.copy(player.pos);
+  // Keep the shadow frustum and sky centered on the focus (player or car).
+  const focus = state.mode === 'driving' && vehicles.playerCar ? vehicles.playerCar : player.pos;
+  sun.position.set(focus.x + sunOffset.x, focus.y + sunOffset.y, focus.z + sunOffset.z);
+  sun.target.position.set(focus.x, focus.y, focus.z);
   sun.target.updateMatrixWorld();
   sky.position.set(camera.position.x, 0, camera.position.z);
   updateHud();
@@ -155,12 +267,13 @@ function render() {
 
 // ---- normal play loop --------------------------------------------------------
 let last = performance.now();
+let autoLoop = true;
 function frame(now) {
   const dt = (now - last) / 1000;
   last = now;
   step(dt);
   render();
-  requestAnimationFrame(frame);
+  if (autoLoop) requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
@@ -198,9 +311,28 @@ window.__NB = {
   step,
   render,
   teleport(x, z) {
-    player.teleport(x, z, city.groundHeightAt);
+    if (state.mode === 'driving' && vehicles.playerCar) {
+      const v = vehicles.playerCar;
+      v.x = x; v.z = z; v.y = city.groundHeightAt(x, z);
+      v.vx = v.vz = v.speed = 0;
+      player.pos.set(x, v.y, z);
+    } else {
+      player.teleport(x, z, city.groundHeightAt);
+    }
     state.player.x = x; state.player.z = z;
     rig.initialized = false;
+  },
+  spawnCarNear(x, z) {
+    const px = x !== undefined ? x : player.pos.x;
+    const pz = z !== undefined ? z : player.pos.z;
+    const v = vehicles.spawn({ type: 'sedan', x: px + 3, z: pz, yaw: 0, kind: 'parked' });
+    return v ? { id: v.id, type: v.type, x: v.x, z: v.z } : null;
+  },
+  enterNearestCar() {
+    if (state.mode === 'driving') return true;
+    const v = vehicles.nearestEnterable(player.pos.x, player.pos.z, 8);
+    if (v) { enterVehicle(v); return true; }
+    return false;
   },
   setWanted(n) {
     state.wanted = clamp(Math.round(n), 0, 5); // P3 wires real police logic
@@ -212,13 +344,47 @@ window.__NB = {
     updateHud();
   },
   poseCamera(mode) {
-    rig.pose(mode, player.pos);
+    const focus = state.mode === 'driving' && vehicles.playerCar ? vehicles.playerCar : player.pos;
+    rig.pose(mode, focus, vehicles.playerCar);
   },
   press(code, down) { input.press(code, down); },
+  // Test hooks: freeze the rAF loop for deterministic step() sequences, and
+  // reset the dynamic world (traffic / peds / cars / clock) to a fresh state.
+  setAutoLoop(on) {
+    on = !!on;
+    if (on && !autoLoop) {
+      last = performance.now();
+      requestAnimationFrame(frame);
+    }
+    autoLoop = on;
+  },
+  reset() {
+    if (state.mode === 'driving') exitVehicle();
+    for (let i = vehicles.list.length - 1; i >= 0; i--) vehicles.despawn(vehicles.list[i]);
+    traffic.reset();
+    peds.reset();
+    spawnStarterCars();
+    player.teleport(CONFIG.player.spawn.x, CONFIG.player.spawn.z, city.groundHeightAt);
+    player.yaw = Math.PI;
+    player.knockX = player.knockZ = 0;
+    player.group.visible = true;
+    state.time = 0;
+    state.mode = 'onfoot';
+    state.vehicle = null;
+    state.health = 100; state.armor = 0; state.cash = 0; state.wanted = 0;
+    state.mission = -1; state.objective = '';
+    state.player.x = player.pos.x; state.player.z = player.pos.z;
+    prevE = false;
+    for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'Space', 'ShiftLeft']) input.press(code, false);
+    rig.initialized = false;
+  },
   startGame,
   state,
   city,
   player,
+  vehicles,
+  traffic,
+  peds,
   renderer,
   scene,
   camera,

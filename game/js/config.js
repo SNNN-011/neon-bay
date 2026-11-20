@@ -32,6 +32,28 @@ export const CONFIG = {
     minPitch: -0.32,
     maxPitch: 1.15,
     followDamp: 10,
+    chaseDistance: 7.5,    // behind the car, grows with speed
+    chaseHeight: 0.24,     // pitch of the chase orbit
+  },
+  vehicle: {
+    enterDist: 3.6,        // how close Riko must be to press E
+  },
+  traffic: {
+    count: 16,             // active AI cars around the player
+    spawnMin: 55,
+    spawnMax: 110,
+    despawn: 150,
+    cruiseMin: 9,
+    cruiseMax: 13,
+    greenPeriod: 7,        // seconds per NS/EW signal phase
+  },
+  peds: {
+    count: 20,
+    spawnRadius: 90,
+    despawn: 130,
+    walkMin: 1.3,
+    walkMax: 2.1,
+    fleeSpeed: 5.2,
   },
   render: {
     pixelRatioCap: 1.5,

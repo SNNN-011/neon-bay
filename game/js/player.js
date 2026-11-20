@@ -56,6 +56,8 @@ export function createPlayer(scene) {
     grounded: true,
     walkPhase: 0,
     speedNow: 0,
+    knockX: 0,             // impulse from car hits, decays in update
+    knockZ: 0,
   };
   player.pos.y = 0;
 
@@ -83,8 +85,10 @@ export function createPlayer(scene) {
     const speed = moving ? (sprint ? P.sprintSpeed : P.walkSpeed) : 0;
     player.speedNow = speed;
 
-    player.pos.x += wx * speed * dt;
-    player.pos.z += wz * speed * dt;
+    player.pos.x += (wx * speed + player.knockX) * dt;
+    player.pos.z += (wz * speed + player.knockZ) * dt;
+    player.knockX *= Math.exp(-5 * dt);
+    player.knockZ *= Math.exp(-5 * dt);
     resolveCircleVsBoxes(player.pos, P.radius, colliders);
     clampToWorld(player.pos);
 
