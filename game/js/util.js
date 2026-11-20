@@ -1,12 +1,14 @@
-// Neon Bay — small math / random helpers shared by every module.
+// Neon Bay — shared math kit: interpolation, seeded randomness and the 2D
+// collision primitives every movement system builds on.
 
 export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 export const lerp = (a, b, t) => a + (b - a) * t;
 
-// Frame-rate independent exponential smoothing.
+// Exponential smoothing that behaves the same at any frame rate.
 export const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
 
-// Deterministic PRNG so the city layout is identical on every load.
+// mulberry32: tiny deterministic PRNG. Fixed seeds keep the city layout,
+// traffic patterns and prop colors identical across loads.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -21,7 +23,7 @@ export const randRange = (rng, lo, hi) => lo + rng() * (hi - lo);
 export const randInt = (rng, lo, hi) => Math.floor(randRange(rng, lo, hi + 1));
 export const pick = (rng, arr) => arr[Math.floor(rng() * arr.length) % arr.length];
 
-// Shortest-path angle interpolation (radians).
+// Angle easing that always takes the short way around the circle.
 export function dampAngle(a, b, lambda, dt) {
   let diff = (b - a) % (Math.PI * 2);
   if (diff > Math.PI) diff -= Math.PI * 2;
@@ -29,16 +31,17 @@ export function dampAngle(a, b, lambda, dt) {
   return a + diff * (1 - Math.exp(-lambda * dt));
 }
 
-// Axis-aligned box collider: { minX, maxX, minZ, maxZ, height }.
+// Static AABB collider record: { minX, maxX, minZ, maxZ, height }.
 export function makeBox(cx, cz, w, d, height) {
   return { minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, height };
 }
 
-// Returns true if any correction happened.
+// Push a circle out of every box it overlaps; true when anything moved.
 export function resolveCircleVsBoxes(pos, radius, boxes) {
-  let hit = false;
+  let touched = false;
   for (let i = 0; i < boxes.length; i++) {
     const b = boxes[i];
+    // Cheap reject before the precise nearest-point test.
     if (pos.x < b.minX - radius || pos.x > b.maxX + radius ||
         pos.z < b.minZ - radius || pos.z > b.maxZ + radius) continue;
     const nearX = clamp(pos.x, b.minX, b.maxX);
@@ -47,48 +50,48 @@ export function resolveCircleVsBoxes(pos, radius, boxes) {
     const dz = pos.z - nearZ;
     const d2 = dx * dx + dz * dz;
     if (d2 >= radius * radius) continue;
-    hit = true;
+    touched = true;
     if (d2 > 1e-9) {
       const d = Math.sqrt(d2);
       pos.x = nearX + (dx / d) * radius;
       pos.z = nearZ + (dz / d) * radius;
     } else {
-      // Center inside the box: eject along the shallowest axis.
+      // Dead center inside the box: escape through the nearest face.
       const left = pos.x - b.minX, right = b.maxX - pos.x;
       const front = pos.z - b.minZ, back = b.maxZ - pos.z;
-      const m = Math.min(left, right, front, back);
-      if (m === left) pos.x = b.minX - radius;
-      else if (m === right) pos.x = b.maxX + radius;
-      else if (m === front) pos.z = b.minZ - radius;
+      const shallow = Math.min(left, right, front, back);
+      if (shallow === left) pos.x = b.minX - radius;
+      else if (shallow === right) pos.x = b.maxX + radius;
+      else if (shallow === front) pos.z = b.minZ - radius;
       else pos.z = b.maxZ + radius;
     }
   }
-  return hit;
+  return touched;
 }
 
 export function pointInBox(x, z, b) {
   return x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ;
 }
 
-// 2D segment vs AABB slab test — true if any tall box blocks the line.
+// Line-of-sight helper: slab-test a 2D segment against tall boxes only.
 export function segmentBlocked(x1, z1, x2, z2, boxes) {
   const dx = x2 - x1, dz = z2 - z1;
   for (const b of boxes) {
-    if (b.height < 2) continue;
+    if (b.height < 2) continue; // low props never block sight
     let tmin = 0, tmax = 1;
-    let ok = true;
+    let hit = true;
     for (const [o, d, lo, hi] of [[x1, dx, b.minX, b.maxX], [z1, dz, b.minZ, b.maxZ]]) {
       if (Math.abs(d) < 1e-9) {
-        if (o < lo || o > hi) { ok = false; break; }
+        if (o < lo || o > hi) { hit = false; break; }
       } else {
         let t1 = (lo - o) / d, t2 = (hi - o) / d;
-        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+        if (t1 > t2) { const swap = t1; t1 = t2; t2 = swap; }
         tmin = Math.max(tmin, t1);
         tmax = Math.min(tmax, t2);
-        if (tmin > tmax) { ok = false; break; }
+        if (tmin > tmax) { hit = false; break; }
       }
     }
-    if (ok) return true;
+    if (hit) return true;
   }
   return false;
 }

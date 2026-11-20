@@ -1,8 +1,9 @@
-// Neon Bay — Riko, the player character: low-poly humanoid, on-foot movement, sprint, jump, collision.
+// Neon Bay — Riko: a low-poly humanoid with camera-relative walking, sprint,
+// jump/gravity, box collision and a procedural stride animation.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { clamp, dampAngle, resolveCircleVsBoxes } from './util.js';
+import { dampAngle, resolveCircleVsBoxes } from './util.js';
 
 const P = CONFIG.player;
 
@@ -22,6 +23,7 @@ export function createPlayer(scene) {
     return m;
   }
 
+  // Limb geometries pivot at the hip/shoulder so rotation swings naturally.
   const legGeo = new THREE.BoxGeometry(0.22, 0.78, 0.24);
   legGeo.translate(0, -0.39, 0);
   const armGeo = new THREE.BoxGeometry(0.16, 0.62, 0.18);
@@ -30,14 +32,12 @@ export function createPlayer(scene) {
   const legL = part(legGeo, pants, -0.13, 0.78, 0);
   const legR = part(legGeo, pants, 0.13, 0.78, 0);
   const shoeGeo = new THREE.BoxGeometry(0.24, 0.1, 0.32);
-  const shoeL = new THREE.Mesh(shoeGeo, shoe);
-  shoeL.position.set(0, -0.73, 0.05);
-  shoeL.castShadow = true;
-  legL.add(shoeL);
-  const shoeR = new THREE.Mesh(shoeGeo, shoe);
-  shoeR.position.set(0, -0.73, 0.05);
-  shoeR.castShadow = true;
-  legR.add(shoeR);
+  for (const leg of [legL, legR]) {
+    const s = new THREE.Mesh(shoeGeo, shoe);
+    s.position.set(0, -0.73, 0.05);
+    s.castShadow = true;
+    leg.add(s);
+  }
   part(new THREE.BoxGeometry(0.5, 0.62, 0.28), shirt, 0, 1.12, 0);
   const armL = part(armGeo, shirt, -0.33, 1.4, 0);
   const armR = part(armGeo, shirt, 0.33, 1.4, 0);
@@ -54,10 +54,9 @@ export function createPlayer(scene) {
     grounded: true,
     walkPhase: 0,
     speedNow: 0,
-    knockX: 0,             // impulse from car hits, decays in update
+    knockX: 0,             // car-hit impulse; decays inside update
     knockZ: 0,
   };
-  player.pos.y = 0;
 
   player.teleport = function (x, z, groundHeightAt) {
     player.pos.set(x, groundHeightAt(x, z), z);
@@ -68,7 +67,7 @@ export function createPlayer(scene) {
   player.update = function (dt, ctx) {
     const { input, cameraYaw, colliders, groundHeightAt, clampToWorld, state } = ctx;
 
-    // Camera-relative wish direction.
+    // Wish direction expressed relative to the camera's yaw.
     const fx = -Math.sin(cameraYaw), fz = -Math.cos(cameraYaw);
     const rx = -fz, rz = fx;
     let wx = 0, wz = 0;
@@ -83,6 +82,7 @@ export function createPlayer(scene) {
     const speed = moving ? (sprint ? P.sprintSpeed : P.walkSpeed) : 0;
     player.speedNow = speed;
 
+    // Horizontal move + knockback, then depenetrate and stay in the world.
     player.pos.x += (wx * speed + player.knockX) * dt;
     player.pos.z += (wz * speed + player.knockZ) * dt;
     player.knockX *= Math.exp(-5 * dt);
@@ -90,7 +90,7 @@ export function createPlayer(scene) {
     resolveCircleVsBoxes(player.pos, P.radius, colliders);
     clampToWorld(player.pos);
 
-    // Vertical: jump, gravity, ground snap with small auto-step.
+    // Vertical: jump impulse, gravity, ground snap with a small auto-step.
     const ground = groundHeightAt(player.pos.x, player.pos.z);
     if (player.grounded && input.isDown('Space')) {
       player.vy = P.jumpSpeed;
@@ -105,13 +105,13 @@ export function createPlayer(scene) {
         player.grounded = true;
       }
     } else if (ground > player.pos.y && ground - player.pos.y <= 0.4) {
-      player.pos.y = ground;
+      player.pos.y = ground; // step up curbs and pier stairs
     } else if (ground < player.pos.y - 0.05) {
       player.grounded = false; // walked off a curb / pier edge
       player.vy = 0;
     }
 
-    // Face the movement direction and animate the walk cycle.
+    // Turn toward the move direction and run the stride cycle.
     if (moving) player.yaw = dampAngle(player.yaw, Math.atan2(wx, wz), 12, dt);
     group.rotation.y = player.yaw;
     group.position.copy(player.pos);

@@ -1,4 +1,5 @@
-// Neon Bay — third-person camera rig: mouse-look orbit, smooth follow, chase cam and screenshot poses.
+// Neon Bay — third-person camera rig: mouse-look orbit with smooth follow,
+// a speed-aware chase cam for driving, and fixed poses for screenshot staging.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -7,7 +8,7 @@ import { clamp, damp, dampAngle, pointInBox } from './util.js';
 export function createCameraRig(camera, input) {
   const C = CONFIG.camera;
   const rig = {
-    yaw: Math.PI,          // start looking north-ish down the street
+    yaw: Math.PI,          // face roughly north down the opening street
     pitch: 0.22,
     pos: new THREE.Vector3(),
     look: new THREE.Vector3(),
@@ -24,13 +25,14 @@ export function createCameraRig(camera, input) {
     rig.pitch = clamp(rig.pitch + m.dy * C.sensitivity, C.minPitch, C.maxPitch);
   }
 
-  // Orbit offset behind the target for the current yaw/pitch.
+  // Orbit displacement behind the focus for the current yaw/pitch.
   function orbit(out, distance) {
     const cp = Math.cos(rig.pitch);
     out.set(Math.sin(rig.yaw) * cp, Math.sin(rig.pitch), Math.cos(rig.yaw) * cp).multiplyScalar(distance);
     return out;
   }
 
+  // Keep the camera out of building volumes and above the pavement.
   function avoidBuildings(p, colliders) {
     for (let i = 0; i < colliders.length; i++) {
       const b = colliders[i];
@@ -38,13 +40,31 @@ export function createCameraRig(camera, input) {
       if (!pointInBox(p.x, p.z, b)) continue;
       const left = p.x - b.minX, right = b.maxX - p.x;
       const front = p.z - b.minZ, back = b.maxZ - p.z;
-      const m = Math.min(left, right, front, back);
-      if (m === left) p.x = b.minX - 0.3;
-      else if (m === right) p.x = b.maxX + 0.3;
-      else if (m === front) p.z = b.minZ - 0.3;
+      const shallow = Math.min(left, right, front, back);
+      if (shallow === left) p.x = b.minX - 0.3;
+      else if (shallow === right) p.x = b.maxX + 0.3;
+      else if (shallow === front) p.z = b.minZ - 0.3;
       else p.z = b.maxZ + 0.3;
     }
     if (p.y < 0.4) p.y = 0.4;
+  }
+
+  // Snap on the first frame, then ease position and aim separately.
+  function settle(dt, posDamp, lookDamp) {
+    if (!rig.initialized) {
+      rig.pos.copy(desired);
+      rig.look.copy(lookTarget);
+      rig.initialized = true;
+    } else {
+      rig.pos.x = damp(rig.pos.x, desired.x, posDamp, dt);
+      rig.pos.y = damp(rig.pos.y, desired.y, posDamp, dt);
+      rig.pos.z = damp(rig.pos.z, desired.z, posDamp, dt);
+      rig.look.x = damp(rig.look.x, lookTarget.x, lookDamp, dt);
+      rig.look.y = damp(rig.look.y, lookTarget.y, lookDamp, dt);
+      rig.look.z = damp(rig.look.z, lookTarget.z, lookDamp, dt);
+    }
+    camera.position.copy(rig.pos);
+    camera.lookAt(rig.look);
   }
 
   rig.update = function (dt, target, colliders) {
@@ -53,23 +73,11 @@ export function createCameraRig(camera, input) {
     orbit(offset, C.distance);
     desired.copy(lookTarget).add(offset);
     avoidBuildings(desired, colliders);
-    if (!rig.initialized) {
-      rig.pos.copy(desired);
-      rig.look.copy(lookTarget);
-      rig.initialized = true;
-    } else {
-      rig.pos.x = damp(rig.pos.x, desired.x, C.followDamp, dt);
-      rig.pos.y = damp(rig.pos.y, desired.y, C.followDamp, dt);
-      rig.pos.z = damp(rig.pos.z, desired.z, C.followDamp, dt);
-      rig.look.x = damp(rig.look.x, lookTarget.x, 16, dt);
-      rig.look.y = damp(rig.look.y, lookTarget.y, 16, dt);
-      rig.look.z = damp(rig.look.z, lookTarget.z, 16, dt);
-    }
-    camera.position.copy(rig.pos);
-    camera.lookAt(rig.look);
+    settle(dt, C.followDamp, 16);
   };
 
-  // ahead down the road. Mouse still adjusts pitch (and a little orbit).
+  // Driving view: hangs behind the car, pulls back with speed, aims ahead
+  // down the road. The mouse still trims pitch (and a little orbit).
   rig.updateChase = function (dt, car, colliders) {
     const m = input.consumeMouse();
     rig.pitch = clamp(rig.pitch + m.dy * C.sensitivity, 0.05, 0.7);
@@ -85,23 +93,10 @@ export function createCameraRig(camera, input) {
     );
     desired.set(car.x, car.y + 1.2, car.z).add(offset);
     avoidBuildings(desired, colliders);
-    if (!rig.initialized) {
-      rig.pos.copy(desired);
-      rig.look.copy(lookTarget);
-      rig.initialized = true;
-    } else {
-      rig.pos.x = damp(rig.pos.x, desired.x, 7, dt);
-      rig.pos.y = damp(rig.pos.y, desired.y, 7, dt);
-      rig.pos.z = damp(rig.pos.z, desired.z, 7, dt);
-      rig.look.x = damp(rig.look.x, lookTarget.x, 14, dt);
-      rig.look.y = damp(rig.look.y, lookTarget.y, 14, dt);
-      rig.look.z = damp(rig.look.z, lookTarget.z, 14, dt);
-    }
-    camera.position.copy(rig.pos);
-    camera.lookAt(rig.look);
+    settle(dt, 7, 14);
   };
 
-  // Fixed cinematic poses used by the screenshot hook.
+  // Deterministic cinematic framings used by the __NB screenshot hook.
   rig.pose = function (mode, target, car) {
     rig.initialized = true;
     if (mode === 'chase') {
@@ -119,7 +114,7 @@ export function createCameraRig(camera, input) {
     } else if (mode === 'front') {
       rig.pos.set(target.x - Math.sin(rig.yaw) * 5, target.y + 2.2, target.z - Math.cos(rig.yaw) * 5);
       rig.look.set(target.x, target.y + 1.4, target.z);
-    } else { // 'follow' — snap the orbit behind the player
+    } else { // 'follow': hard-snap the orbit behind the player
       lookTarget.set(target.x, target.y + C.lookHeight, target.z);
       orbit(offset, C.distance);
       rig.pos.copy(lookTarget).add(offset);

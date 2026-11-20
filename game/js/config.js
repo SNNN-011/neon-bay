@@ -1,16 +1,18 @@
-// Neon Bay — central tuning values. One place for world layout, movement feel and render budget.
+// Neon Bay — single tuning sheet for the whole game.
+// World geometry, movement feel, AI budgets and the golden-hour render setup
+// all live here so balancing never means hunting through system code.
 
 export const CONFIG = {
   city: {
-    blockPitch: 40,        // distance between road centerlines
-    roadWidth: 12,         // asphalt width of one road
-    sidewalkWidth: 3,      // raised sidewalk ring around each block
-    gridHalf: 3,           // roads at -120, -80, ... 120 on both axes (7 per axis)
-    cityEdge: 132,         // outer edge of the road grid
-    beachStart: 126,       // sand begins east of the last road
+    blockPitch: 40,        // road centerline spacing
+    roadWidth: 12,         // asphalt span of a single road
+    sidewalkWidth: 3,      // raised walkway ringing every block
+    gridHalf: 3,           // 7 roads per axis: -120 .. 120
+    cityEdge: 132,         // outer limit of the street grid
+    beachStart: 126,       // sand strip begins east of the grid
     oceanStart: 190,       // waterline
     worldMinX: -150,
-    worldMaxX: 246,        // includes the pier tip
+    worldMaxX: 246,        // far enough to include the pier tip
     worldMinZ: -150,
     worldMaxZ: 150,
     pier: { x0: 150, x1: 242, halfWidth: 4, deckY: 0.5, z: 0 },
@@ -32,14 +34,14 @@ export const CONFIG = {
     minPitch: -0.32,
     maxPitch: 1.15,
     followDamp: 10,
-    chaseDistance: 7.5,    // behind the car, grows with speed
-    chaseHeight: 0.24,     // pitch of the chase orbit
+    chaseDistance: 7.5,    // base orbit behind a car; stretches with speed
+    chaseHeight: 0.24,     // chase orbit pitch
   },
   vehicle: {
-    enterDist: 3.6,        // how close Riko must be to press E
+    enterDist: 3.6,        // E works within this range of a car
   },
   traffic: {
-    count: 16,             // active AI cars around the player
+    count: 16,             // AI cars kept alive around the focus point
     spawnMin: 55,
     spawnMax: 110,
     despawn: 150,
@@ -60,7 +62,7 @@ export const CONFIG = {
     maxFoot: 5,
     spawnMin: 48,
     spawnMax: 78,
-    carTop: 29,            // +1.5 per star; sport cars can still outrun them
+    carTop: 29,            // +1.5 per star; sport cars can still escape
     losRange: 62,
     shootRange: 26,
     shootEvery: 1.5,
@@ -84,14 +86,14 @@ export const CONFIG = {
     wastedFine: 60,
   },
   wanted: {
-    thresholds: [8, 24, 44, 68, 92], // heat needed for stars 1..5
-    escapeTime: 7,         // +1s per current star, out of police sight
-    hotWindow: 9,          // seconds after a crime that police reinforce
+    thresholds: [8, 24, 44, 68, 92], // heat required for stars 1..5
+    escapeTime: 7,         // +1s per current star outside police sight
+    hotWindow: 9,          // post-crime window where police reinforce
   },
   render: {
     pixelRatioCap: 1.5,
     shadowMapSize: 2048,
-    shadowRadius: 70,      // ortho half-size of the sun shadow frustum around the player
+    shadowRadius: 70,      // half-size of the sun's ortho shadow box
     fogNear: 70,
     fogFar: 430,
     fogColor: 0xffb27a,
@@ -104,7 +106,7 @@ export const CONFIG = {
     hemiIntensity: 1.05,
   },
   palette: {
-    // art-deco pastels for building bodies
+    // pastel art-deco bodies
     buildings: [0xf7c8d8, 0xbfe8d9, 0xfde9c8, 0xcfd8f7, 0xf6d3b3, 0xe8c8ef, 0xbfe0ef, 0xffe3a8],
     trims: [0xff5f9e, 0x35e0d2, 0xffc36b, 0x8f7bff, 0xff8a5c, 0x6bd5ff],
     neon: [0xff2f92, 0x22e6d6, 0xffb02e, 0x9a6bff, 0xff5c39, 0x3dff8f],

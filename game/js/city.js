@@ -1,4 +1,6 @@
-// Neon Bay — city layout: road grid, sidewalks, downtown blocks, alleys, plazas, beach, ocean and pier.
+// Neon Bay — city layout: the street grid, sidewalk plinths, downtown blocks,
+// alleys, parking lots, plazas, the beach, the bay and the wooden pier.
+// A fixed seed drives every random choice so the map is identical per load.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -10,8 +12,10 @@ const C = CONFIG.city;
 const P = CONFIG.palette;
 const dummy = new THREE.Object3D();
 
-function instancedBoxes(scene, geoW, geoH, geoD, mat, items, opts = {}) {
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(geoW, geoH, geoD), mat, items.length);
+// Batch of axis-aligned boxes drawn as one InstancedMesh (unit cube scaled
+// per instance). Keeps roads, markings and plinths at one draw call each.
+function instancedBoxes(scene, mat, items, opts = {}) {
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, items.length);
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
     dummy.position.set(it.x, it.y, it.z);
@@ -33,11 +37,14 @@ function instancedBoxes(scene, geoW, geoH, geoD, mat, items, opts = {}) {
 export function buildCity(scene) {
   const rng = mulberry32(20261120);
   const colliders = [];
+
+  // Road centerlines on both axes, then the centers of the blocks between.
   const lines = [];
   for (let i = -C.gridHalf; i <= C.gridHalf; i++) lines.push(i * C.blockPitch);
   const cellCenters = [];
   for (let i = 0; i < C.gridHalf * 2; i++) cellCenters.push(-100 + i * C.blockPitch);
 
+  // Base dirt slab under everything.
   const ground = new THREE.Mesh(
     new THREE.BoxGeometry(640, 1, 640),
     new THREE.MeshStandardMaterial({ color: 0x93887a, roughness: 1 })
@@ -46,6 +53,7 @@ export function buildCity(scene) {
   ground.receiveShadow = true;
   scene.add(ground);
 
+  // Sand strip between the grid and the waterline.
   const sand = new THREE.Mesh(
     new THREE.BoxGeometry(C.oceanStart - C.beachStart, 0.16, 320),
     new THREE.MeshStandardMaterial({ color: P.sand, roughness: 1 })
@@ -54,14 +62,14 @@ export function buildCity(scene) {
   sand.receiveShadow = true;
   scene.add(sand);
 
+  // The bay. Low metalness + faint emissive: with no env map, metallic water
+  // turns black at grazing angles — this keeps the teal through golden hour.
   const ocean = new THREE.Mesh(
     new THREE.BoxGeometry(440, 0.6, 660),
-    // low metalness + faint emissive: without an env map, metal water goes
-    // black at grazing angles; this keeps the bay teal through golden hour.
     new THREE.MeshStandardMaterial({ color: 0x37b4cc, roughness: 0.18, metalness: 0.02, emissive: 0x0a3d4a, emissiveIntensity: 0.4 })
   );
-  // waterline sits ABOVE the ground slab (top y=0) or the bay renders as
-  // bare dirt; 0.06 keeps it just under the sand lip (0.08).
+  // Waterline must sit ABOVE the dirt slab top (y=0) or the bay reads as
+  // bare ground; 0.06 tucks it just under the sand lip (0.08).
   ocean.position.set(C.oceanStart + 220, -0.24, 0);
   scene.add(ocean);
 
@@ -72,6 +80,7 @@ export function buildCity(scene) {
   foam.position.set(C.oceanStart, 0.07, 0);
   scene.add(foam);
 
+  // Asphalt: full-length NS roads plus EW segments between intersections.
   const asphaltMat = new THREE.MeshStandardMaterial({ color: P.asphalt, roughness: 0.95 });
   const roadItems = [];
   for (const x of lines) roadItems.push({ x, y: 0.04, z: 0, sx: C.roadWidth, sy: 0.08, sz: C.cityEdge * 2 });
@@ -81,8 +90,9 @@ export function buildCity(scene) {
       roadItems.push({ x: cx, y: 0.04, z, sx: C.blockPitch - C.roadWidth, sy: 0.08, sz: C.roadWidth });
     }
   }
-  instancedBoxes(scene, 1, 1, 1, asphaltMat, roadItems, { receive: true });
+  instancedBoxes(scene, asphaltMat, roadItems, { receive: true });
 
+  // Dashed centerlines, skipped near intersections.
   const dashItems = [];
   const nearLine = (v) => lines.some((l) => Math.abs(v - l) < 9);
   for (const x of lines) {
@@ -95,8 +105,9 @@ export function buildCity(scene) {
       if (!nearLine(x)) dashItems.push({ x, y: 0.085, z, sx: 0.18, sy: 0.02, sz: 2.2, yaw: Math.PI / 2, color: P.lane });
     }
   }
-  instancedBoxes(scene, 1, 1, 1, new THREE.MeshBasicMaterial(), dashItems);
+  instancedBoxes(scene, new THREE.MeshBasicMaterial(), dashItems);
 
+  // Zebra crossings on all four approaches of every intersection.
   const walkItems = [];
   for (const ix of lines) for (const iz of lines) {
     for (let k = 0; k < 6; k++) {
@@ -107,8 +118,10 @@ export function buildCity(scene) {
       walkItems.push({ x: ix + 8.2, y: 0.085, z: iz + t, sx: 0.55, sy: 0.02, sz: 2.4, yaw: Math.PI / 2, color: P.crosswalk });
     }
   }
-  instancedBoxes(scene, 1, 1, 1, new THREE.MeshBasicMaterial(), walkItems);
+  instancedBoxes(scene, new THREE.MeshBasicMaterial(), walkItems);
 
+  // Block contents. The rng draw order below is load-bearing: it fixes the
+  // skyline, lot cars and palms for the seeded layout.
   const plinthItems = [];
   const specs = [];
   const palms = [];
@@ -138,6 +151,7 @@ export function buildCity(scene) {
         const h = height();
         specs.push({ x: cx, z: cz, w, d, h, color: color(), trim: trim(), neon: h > 12 && rng() < 0.6 });
       } else if (kind === 'alley') {
+        // Two slim buildings flanking a service lane.
         for (const side of [-1, 1]) {
           const h = height() * randRange(rng, 0.7, 1);
           specs.push({ x: cx + side * 6.75, z: cz, w: 8.5, d: 19, h, color: color(), trim: trim(), neon: rng() < 0.45 });
@@ -151,7 +165,7 @@ export function buildCity(scene) {
       } else if (kind === 'plaza') {
         stallItems.push({ x: cx, y: 0.14, z: cz, sx: 22, sy: 0.04, sz: 22, color: P.grass });
         for (const ox of [-8, 8]) for (const oz of [-8, 8]) {
-          palms.push({ x: cx + ox, z: cz + oz, scale: randRange(rng, 0.8, 1.1), leanX: randRange(rng, -0.08, 0.08), leanZ: randRange(rng, -0.08, 0.08) });
+          palms.push({ x: cx + ox, z: cz + oz, y: 0.16, scale: randRange(rng, 0.8, 1.1), leanX: randRange(rng, -0.08, 0.08), leanZ: randRange(rng, -0.08, 0.08) });
         }
         const basin = new THREE.Mesh(
           new THREE.CylinderGeometry(3, 3.4, 0.6, 16),
@@ -168,12 +182,13 @@ export function buildCity(scene) {
       }
     }
   }
-  instancedBoxes(scene, 1, 1, 1, new THREE.MeshStandardMaterial({ roughness: 0.95 }), plinthItems, { receive: true });
-  instancedBoxes(scene, 1, 1, 1, new THREE.MeshStandardMaterial({ roughness: 0.95 }), stallItems, { receive: true });
+  instancedBoxes(scene, new THREE.MeshStandardMaterial({ roughness: 0.95 }), plinthItems, { receive: true });
+  instancedBoxes(scene, new THREE.MeshStandardMaterial({ roughness: 0.95 }), stallItems, { receive: true });
 
   const buildings = createBuildings(scene, specs, rng);
   colliders.push(...buildings.colliders);
 
+  // Pier: deck on pillars, two access steps, side rails.
   const pier = C.pier;
   const woodMat = new THREE.MeshStandardMaterial({ color: 0xb08a63, roughness: 0.9 });
   const deck = new THREE.Mesh(new THREE.BoxGeometry(pier.x1 - pier.x0, 0.2, pier.halfWidth * 2), woodMat);
@@ -204,12 +219,14 @@ export function buildCity(scene) {
     scene.add(rail);
   }
 
+  // Beachfront palms (grounded on the sand lip) plus two at the pier mouth.
   for (let z = -140; z <= 140; z += 16) {
-    palms.push({ x: 134 + randRange(rng, -2, 2), z, scale: randRange(rng, 0.85, 1.25), leanX: randRange(rng, -0.1, 0.1), leanZ: randRange(rng, -0.12, 0.02) });
+    palms.push({ x: 134 + randRange(rng, -2, 2), z, y: 0.08, scale: randRange(rng, 0.85, 1.25), leanX: randRange(rng, -0.1, 0.1), leanZ: randRange(rng, -0.12, 0.02) });
   }
-  for (const oz of [-12, 12]) palms.push({ x: 142, z: oz, scale: 1.1, leanX: 0.05, leanZ: -0.08 });
+  for (const oz of [-12, 12]) palms.push({ x: 142, z: oz, y: 0.08, scale: 1.1, leanX: 0.05, leanZ: -0.08 });
   createPalms(scene, palms, rng);
 
+  // Lamps lining both sides of every road, arms over the asphalt.
   const lamps = [];
   for (const l of lines) {
     for (let t = -116; t <= 116; t += 29) {
@@ -224,6 +241,7 @@ export function buildCity(scene) {
   const cars = createParkedCars(scene, parkedCars, rng);
   colliders.push(...cars.colliders);
 
+  // Walkable surface height: pier deck/steps, block plinths, sand, grade.
   function groundHeightAt(x, z) {
     if (Math.abs(z - pier.z) <= pier.halfWidth) {
       if (x >= pier.x0 && x <= pier.x1) return pier.deckY;
@@ -242,6 +260,7 @@ export function buildCity(scene) {
     return 0;
   }
 
+  // Hard world bounds; the ocean is a wall unless you're on the pier.
   function clampToWorld(pos) {
     pos.x = Math.max(C.worldMinX, Math.min(C.worldMaxX, pos.x));
     pos.z = Math.max(C.worldMinZ, Math.min(C.worldMaxZ, pos.z));

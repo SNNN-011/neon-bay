@@ -1,4 +1,6 @@
-// Neon Bay — street props: palm trees, street lamps and parked cars.
+// Neon Bay — street dressing: leaning palms, cantilever lamps and parked
+// cars. Everything is instanced; palms accept a base height so they sit
+// flush on sand or plaza paving instead of hovering.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -6,7 +8,6 @@ import { makeBox, pick, randRange } from './util.js';
 
 const dummy = new THREE.Object3D();
 const tmpColor = new THREE.Color();
-const up = new THREE.Vector3(0, 1, 0);
 
 function finish(mesh, { shadow = false, receive = false } = {}) {
   mesh.instanceMatrix.needsUpdate = true;
@@ -17,34 +18,36 @@ function finish(mesh, { shadow = false, receive = false } = {}) {
   return mesh;
 }
 
-// palms: [{ x, z, scale, leanX, leanZ }]
+// palms: [{ x, z, scale, leanX, leanZ, y? }] — y defaults to grade level.
 export function createPalms(scene, palms, rng) {
   const trunkGeo = new THREE.CylinderGeometry(0.13, 0.26, 5, 6);
-  trunkGeo.translate(0, 2.5, 0);
+  trunkGeo.translate(0, 2.5, 0); // base at the instance origin
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x9a6b4f, roughness: 0.95 });
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, palms.length);
 
   const frondGeo = new THREE.BoxGeometry(0.34, 0.06, 3.1);
-  frondGeo.translate(0, 0, 1.55);
+  frondGeo.translate(0, 0, 1.55); // pivot at the crown
   const frondMat = new THREE.MeshStandardMaterial({ roughness: 0.9 });
   const fronds = new THREE.InstancedMesh(frondGeo, frondMat, palms.length * 6);
 
   const q = new THREE.Quaternion();
-  const top = new THREE.Vector3();
+  const crown = new THREE.Vector3();
   let fi = 0;
   for (let i = 0; i < palms.length; i++) {
     const p = palms[i];
-    dummy.position.set(p.x, 0, p.z);
+    const baseY = p.y || 0;
+    dummy.position.set(p.x, baseY, p.z);
     dummy.rotation.set(p.leanX, randRange(rng, 0, Math.PI * 2), p.leanZ);
     dummy.scale.setScalar(p.scale);
     dummy.updateMatrix();
     trunks.setMatrixAt(i, dummy.matrix);
     trunks.setColorAt(i, tmpColor.setHex(0x9a6b4f).multiplyScalar(randRange(rng, 0.85, 1.1)));
 
+    // Crown position follows the trunk's lean so fronds stay attached.
     q.setFromEuler(dummy.rotation);
-    top.set(0, 5, 0).applyQuaternion(q).multiplyScalar(p.scale).add(dummy.position);
+    crown.set(0, 5, 0).applyQuaternion(q).multiplyScalar(p.scale).add(dummy.position);
     for (let k = 0; k < 6; k++) {
-      dummy.position.copy(top);
+      dummy.position.copy(crown);
       dummy.rotation.order = 'YXZ';
       dummy.rotation.set(randRange(rng, 0.3, 0.6), (k / 6) * Math.PI * 2 + randRange(rng, -0.2, 0.2), 0);
       dummy.scale.setScalar(p.scale);
@@ -60,7 +63,7 @@ export function createPalms(scene, palms, rng) {
   return { meshes: [trunks, fronds] };
 }
 
-// lamps: [{ x, z, yaw }] — yaw points the cantilever arm over the road.
+// lamps: [{ x, z, yaw }] — yaw aims the cantilever arm over the asphalt.
 export function createLamps(scene, lamps) {
   const poleGeo = new THREE.CylinderGeometry(0.08, 0.12, 5.4, 6);
   poleGeo.translate(0, 2.7, 0);
@@ -88,7 +91,7 @@ export function createLamps(scene, lamps) {
   return { meshes: [poles, heads] };
 }
 
-// cars: [{ x, z, color }] — parked along the z axis in parking lots.
+// cars: [{ x, z, color }] — static lot cars aligned along z, with colliders.
 export function createParkedCars(scene, cars, rng) {
   const colliders = [];
   const bodyGeo = new THREE.BoxGeometry(1.9, 0.6, 4.3);

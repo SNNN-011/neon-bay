@@ -1,22 +1,26 @@
-// Neon Bay — keyboard + mouse state; pointer lock drives look, press() feeds the deterministic test hook.
+// Neon Bay — keyboard/mouse capture. Pointer lock drives the look controls;
+// press() lets the deterministic __NB test hook inject key states.
 
 export function createInput(canvas) {
   const keys = Object.create(null);
   const mouse = { dx: 0, dy: 0, locked: false };
 
-  const PREVENT = new Set(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+  // Keys whose browser default (scroll, focus change) would fight the game.
+  const SWALLOW = new Set(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 
   window.addEventListener('keydown', (e) => {
     keys[e.code] = true;
-    if (PREVENT.has(e.code)) e.preventDefault();
+    if (SWALLOW.has(e.code)) e.preventDefault();
   });
   window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+  // Dropping focus must not leave a key stuck down.
   window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
   canvas.addEventListener('click', () => {
     if (!mouse.locked && canvas.requestPointerLock) {
       const p = canvas.requestPointerLock();
-      if (p && p.catch) p.catch(() => {}); // headless / denied: keep playing without lock
+      // Headless or permission-denied: play on without lock instead of throwing.
+      if (p && p.catch) p.catch(() => {});
     }
   });
   document.addEventListener('pointerlockchange', () => {
@@ -34,7 +38,7 @@ export function createInput(canvas) {
     mouse,
     isDown: (code) => !!keys[code],
     press(code, down) { keys[code] = !!down; },
-    // Read accumulated mouse deltas once per simulation step.
+    // Drain accumulated look deltas; called once per simulation step.
     consumeMouse() {
       const d = { dx: mouse.dx, dy: mouse.dy };
       mouse.dx = 0; mouse.dy = 0;

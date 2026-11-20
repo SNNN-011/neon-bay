@@ -1,4 +1,6 @@
-// Neon Bay — traffic AI: right-hand lanes, signalized intersections, turns, avoidance, spawn/despawn pool.
+// Neon Bay — traffic AI: right-hand lanes, signalized intersections with
+// turn decisions, lookahead braking, and a spawn/despawn pool that follows
+// the player. Mission vans (missionCar) run reds and never despawn.
 
 import { CONFIG } from './config.js';
 import { clamp, mulberry32, randRange, randInt, pick } from './util.js';
@@ -7,10 +9,12 @@ import { updateVehiclePhysics, randomCarType } from './vehicles.js';
 const T = CONFIG.traffic;
 const C = CONFIG.city;
 
+// Cardinal directions: 0=N(-z) 1=S(+z) 2=E(+x) 3=W(-x).
 const DIRS = [{ dx: 0, dz: -1 }, { dx: 0, dz: 1 }, { dx: 1, dz: 0 }, { dx: -1, dz: 0 }];
 const RIGHT_TURN = [2, 3, 1, 0];
 const LEFT_TURN = [3, 2, 0, 1];
 const dirYaw = (d) => Math.atan2(DIRS[d].dx, DIRS[d].dz);
+// Right-hand traffic: lane sits 3m to the right of the centerline.
 const laneOffset = (d) => (DIRS[d].dx !== 0 ? DIRS[d].dx * 3 : -DIRS[d].dz * 3);
 
 export function createTraffic(vehicles, city, rngSeed) {
@@ -23,6 +27,7 @@ export function createTraffic(vehicles, city, rngSeed) {
     v.yaw = dirYaw(dir);
   }
 
+  // Next cross-street ahead of `coord` along the travel direction.
   function nextIntersection(coord, dir) {
     const sign = DIRS[dir].dx || DIRS[dir].dz;
     let best = null, bestD = Infinity;
@@ -33,7 +38,7 @@ export function createTraffic(vehicles, city, rngSeed) {
     return best;
   }
 
-  // NS green on even cycles, EW on odd — deterministic from sim time.
+  // NS green on even phases, EW on odd — purely a function of sim time.
   function isGreen(dir, time) {
     const phase = Math.floor(time / T.greenPeriod) % 2;
     const ns = DIRS[dir].dx === 0;
@@ -51,6 +56,7 @@ export function createTraffic(vehicles, city, rngSeed) {
     );
     const x = horizontal ? along : lane;
     const z = horizontal ? lane : along;
+    // Keep spawn points clear of existing cars and not too close to focus.
     for (const c of vehicles.list) if (Math.hypot(c.x - x, c.z - z) < 12) return false;
     if (Math.hypot(focus.x - x, focus.z - z) < T.spawnMin - 10) return false;
     const v = vehicles.spawn({
@@ -67,7 +73,7 @@ export function createTraffic(vehicles, city, rngSeed) {
     const { state, player, peds, time } = ctx;
     const focus = state.mode === 'driving' && vehicles.playerCar ? vehicles.playerCar : player.pos;
 
-    // Despawn far cars, top up the pool near the player.
+    // Recycle distant cars, then top the pool back up near the focus.
     for (let i = vehicles.list.length - 1; i >= 0; i--) {
       const v = vehicles.list[i];
       if (v.kind === 'traffic' && !v.missionCar && Math.hypot(v.x - focus.x, v.z - focus.z) > T.despawn) vehicles.despawn(v);
@@ -79,9 +85,10 @@ export function createTraffic(vehicles, city, rngSeed) {
     for (const v of vehicles.list) {
       if (v.kind !== 'traffic' || !v.ai) continue;
       if (v.stun > 0) {
+        // Wrecked/stunned: coast to a stop, then rejoin the lane ahead.
         v.stun = Math.max(0, v.stun - dt);
         updateVehiclePhysics(v, dt, { throttle: 0, steer: 0 }, city);
-        if (v.stun === 0) { v.ai.turn = null; v.ai.wp = null; } // rejoin lane ahead
+        if (v.stun === 0) { v.ai.turn = null; v.ai.wp = null; }
         continue;
       }
       const ai = v.ai;
@@ -92,7 +99,7 @@ export function createTraffic(vehicles, city, rngSeed) {
       const lane = ai.road + laneOffset(ai.dir);
       const nextI = nextIntersection(coord, ai.dir);
 
-      // Default: cruise along the lane, lookahead waypoint keeps it centered.
+      // Cruise default: a lookahead waypoint keeps the car lane-centered.
       let targetSpeed = ai.cruise;
       let wp = horizontal
         ? { x: coord + d.dx * 12, z: lane }
@@ -106,6 +113,7 @@ export function createTraffic(vehicles, city, rngSeed) {
           const iz = horizontal ? ai.road : nextI;
           let clear = v.missionCar || isGreen(ai.dir, time); // fleeing mission van runs reds
           if (clear) {
+            // Don't enter a box already occupied by cross-direction traffic.
             for (const c of vehicles.list) {
               if (c === v || !c.active) continue;
               if (Math.abs(c.x - ix) < 8 && Math.abs(c.z - iz) < 8) {
@@ -147,7 +155,7 @@ export function createTraffic(vehicles, city, rngSeed) {
         }
       }
 
-      // Brake for anything ahead: cars, the on-foot player, pedestrians.
+      // Brake for anything in the lookahead zone: cars, Riko, pedestrians.
       const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
       const px = v.x + fx * 7.5, pz = v.z + fz * 7.5;
       for (const c of vehicles.list) {
@@ -160,7 +168,7 @@ export function createTraffic(vehicles, city, rngSeed) {
         }
       }
 
-      // Steer toward the waypoint, throttle toward the target speed.
+      // Pure-pursuit steer toward the waypoint, P-control on speed.
       const dx = wp.x - v.x, dz = wp.z - v.z;
       let diff = (Math.atan2(dx, dz) - v.yaw) % (Math.PI * 2);
       if (diff > Math.PI) diff -= Math.PI * 2;

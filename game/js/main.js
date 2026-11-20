@@ -1,4 +1,6 @@
-// Neon Bay — boot + main loop: renderer, golden-hour sky, world systems and the deterministic __NB hook.
+// Neon Bay — boot and main loop. Wires the renderer, golden-hour sky and
+// lights, every world system, the menu/save flow, and the deterministic
+// window.__NB hook used for headless verification and screenshot staging.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -33,9 +35,9 @@ renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(R.fogColor, R.fogNear, R.fogFar);
-
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 900);
 
+// Gradient sky dome with a procedural sun disc + halo (no texture assets).
 const skyUniforms = {
   uTop: { value: new THREE.Color(R.skyTop) },
   uHorizon: { value: new THREE.Color(R.skyHorizon) },
@@ -75,12 +77,13 @@ scene.add(sky);
 const hemi = new THREE.HemisphereLight(R.hemiSky, R.hemiGround, R.hemiIntensity);
 scene.add(hemi);
 
-// Cool fill from the anti-sun side: facades facing away from the golden-hour
-// sun stay readable from aerial angles instead of going flat dark.
+// Cool fill from the anti-sun side keeps shadowed facades readable from
+// aerial angles instead of going flat dark.
 const fill = new THREE.DirectionalLight(0x8fb8e8, 0.55);
 fill.position.set(-60, 48, -55);
 scene.add(fill);
 
+// The sun: one shadow-casting directional whose frustum follows the player.
 const sun = new THREE.DirectionalLight(R.sunColor, R.sunIntensity);
 sun.castShadow = true;
 sun.shadow.mapSize.set(R.shadowMapSize, R.shadowMapSize);
@@ -98,6 +101,7 @@ scene.add(sun);
 scene.add(sun.target);
 const sunOffset = new THREE.Vector3(70, 95, 45);
 
+// World + actor systems (fixed seeds keep runs reproducible).
 const city = buildCity(scene);
 const input = createInput(canvas);
 const player = createPlayer(scene);
@@ -106,6 +110,7 @@ const vehicles = createVehicleSystem(scene, city);
 const traffic = createTraffic(vehicles, city, 90210);
 const peds = createPedestrians(scene, city, 4242);
 
+// A pink sport car outside the spawn plus sedans in the two nearest lots.
 function spawnStarterCars() {
   vehicles.spawn({ type: 'sport', color: 0xff5f9e, x: 4.6, z: 24, yaw: 0, kind: 'parked' });
   const lots = [];
@@ -122,6 +127,7 @@ function spawnStarterCars() {
 }
 spawnStarterCars();
 
+// Shared game state — every system reads/writes this single record.
 const state = {
   started: false,
   paused: false,
@@ -176,6 +182,7 @@ function enterVehicle(v) {
 function exitVehicle() {
   const v = vehicles.playerCar;
   if (!v) return;
+  // Step out on the driver's side, depenetrated from world + other cars.
   const s = v.spec;
   const lx = -(s.wid / 2 + 0.9);
   const pos = {
@@ -210,6 +217,7 @@ function handleEnterExit() {
   if (v) enterVehicle(v);
 }
 
+// One simulation tick. Also callable directly via __NB.step for headless runs.
 function step(dt) {
   dt = clamp(dt, 0, 0.05);
   if (!state.paused) {
@@ -226,6 +234,7 @@ function step(dt) {
     save.update(dt);
 
     if (state.mode === 'driving' && vehicles.playerCar) {
+      // Riko rides inside the car: mirror its transform into player state.
       const v = vehicles.playerCar;
       player.pos.set(v.x, v.y, v.z);
       state.player.x = v.x; state.player.y = v.y; state.player.z = v.z;
@@ -248,6 +257,7 @@ function step(dt) {
       rig.update(dt, player.pos, city.colliders);
     }
   }
+  // E edge-trigger: mission interaction wins over enter/exit.
   const eDown = input.isDown('KeyE');
   if (eDown && !prevE && state.started && !state.down) {
     if (!missions.interact() && !state.paused) handleEnterExit();
@@ -267,6 +277,7 @@ function render() {
   renderer.render(scene, camera);
 }
 
+// Normal play runs on rAF; __NB.setAutoLoop(false) hands timing to the hook.
 let last = performance.now();
 let autoLoop = true;
 function frame(now) {
@@ -326,6 +337,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// Full new-game reset: world pool, player, state, law and story systems.
 function resetGame() {
   if (state.mode === 'driving') exitVehicle();
   for (let i = vehicles.list.length - 1; i >= 0; i--) vehicles.despawn(vehicles.list[i]);
@@ -352,6 +364,7 @@ function resetGame() {
   rig.initialized = false;
 }
 
+// Deterministic control surface for verification + screenshot staging.
 window.__NB = {
   step,
   render,
@@ -383,7 +396,7 @@ window.__NB = {
     wanted.set(n);
     hud.update(0);
   },
-  // P3 test helpers: deterministic combat / damage / pickup access.
+  // Direct combat / damage / pickup access for deterministic tests.
   fireWeapon() { return combat.fireWeapon(); },
   attack() { combat.attack(); },
   damagePlayer(n, source) { combat.damagePlayer(n, source || 'world'); },

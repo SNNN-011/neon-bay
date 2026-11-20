@@ -1,4 +1,6 @@
-// Neon Bay — vehicles: low-poly car factory, arcade physics, collisions, instanced fleet + player mesh.
+// Neon Bay — vehicles: low-poly car factory, arcade physics with lateral
+// slip, box/circle collisions, and an instanced fleet with a detailed mesh
+// swap for whichever car the player drives.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -14,8 +16,14 @@ const TYPE_NAMES = Object.keys(VEHICLE_TYPES);
 export const randomCarType = (rng) => pick(rng, TYPE_NAMES);
 
 const WHEEL_R = 0.34;
-const BODY_Y = 0.32; // chassis ride height above ground
+const BODY_Y = 0.32; // chassis ride height above the ground
 
+function wheelOffsets(s) {
+  const ox = s.wid / 2 - 0.02, oz = s.len / 2 - 0.95;
+  return [[-ox, oz], [ox, oz], [-ox, -oz], [ox, -oz]];
+}
+
+// Detailed group used for the player's car (spinning wheels, chrome, lights).
 export function createVehicleMesh(type, color) {
   const s = VEHICLE_TYPES[type] || VEHICLE_TYPES.sedan;
   const g = new THREE.Group();
@@ -45,11 +53,7 @@ export function createVehicleMesh(type, color) {
   return g;
 }
 
-function wheelOffsets(s) {
-  const ox = s.wid / 2 - 0.02, oz = s.len / 2 - 0.95;
-  return [[-ox, oz], [ox, oz], [-ox, -oz], [ox, -oz]];
-}
-
+// Two circles (front/rear) approximate the car's footprint for collisions.
 export function carCircles(v) {
   const s = v.spec;
   const r = s.wid * 0.55;
@@ -61,7 +65,9 @@ export function carCircles(v) {
   ];
 }
 
-// recomposed, which is what produces the drift feel.
+// Arcade model: velocity is split into forward speed and lateral slip each
+// step; grip bleeds the slip off (slowly under handbrake), then it is
+// recomposed — that recomposition is what produces the drift feel.
 export function updateVehiclePhysics(v, dt, ctrl, city) {
   const s = v.spec;
   const sy = Math.sin(v.yaw), cy = Math.cos(v.yaw);
@@ -73,11 +79,11 @@ export function updateVehiclePhysics(v, dt, ctrl, city) {
 
   if (!stunned) {
     if (throttle > 0) f += s.accel * throttle * dt;
-    else if (throttle < 0) f += (f > 0.5 ? 22 : s.accel * 0.5) * throttle * dt;
+    else if (throttle < 0) f += (f > 0.5 ? 22 : s.accel * 0.5) * throttle * dt; // brake vs reverse
   }
   f = clamp(f, -8, s.top);
   f *= Math.exp(-(stunned ? 1.6 : 0.18) * dt);           // drag
-  if (Math.abs(throttle) < 0.05 || stunned) f -= Math.sign(f) * Math.min(Math.abs(f), 2.2 * dt);
+  if (Math.abs(throttle) < 0.05 || stunned) f -= Math.sign(f) * Math.min(Math.abs(f), 2.2 * dt); // rolling resistance
   if (handbrake) f *= Math.exp(-1.1 * dt);
   l *= Math.exp(-(handbrake ? 1.7 : 9) * dt);            // tire grip
 
@@ -92,6 +98,8 @@ export function updateVehiclePhysics(v, dt, ctrl, city) {
   v.z += v.vz * dt;
   v.speed = f;
 
+  // Depenetrate both footprint circles from static boxes; the net push
+  // defines the impact normal used to bounce the velocity.
   const ox = v.x, oz = v.z;
   v.impact = 0;
   for (const c of carCircles(v)) {
@@ -119,6 +127,7 @@ export function updateVehiclePhysics(v, dt, ctrl, city) {
   return v.impact;
 }
 
+// Pairwise car-car impulses (mass weighted) plus shoving the on-foot player.
 function collideCars(list, player, mode) {
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
@@ -154,7 +163,7 @@ function collideCars(list, player, mode) {
         b.impact = Math.max(b.impact || 0, -rel);
       }
     }
-    // Knock the player around when a moving car clips them on foot.
+    // A moving car clipping Riko on foot knocks him aside.
     if (mode === 'onfoot') {
       for (const c of ca) {
         const dx = player.pos.x - c.x, dz = player.pos.z - c.z;
@@ -187,6 +196,7 @@ export function createVehicleSystem(scene, city) {
   for (let i = MAX_INSTANCES - 1; i >= 0; i--) freeSlots.push(i);
   let nextId = 1;
 
+  // One instanced batch per car part; unused slots get a zero-scale matrix.
   const unit = new THREE.BoxGeometry(1, 1, 1);
   const wheelGeo = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.24, 10);
   wheelGeo.rotateZ(Math.PI / 2);
@@ -204,11 +214,12 @@ export function createVehicleSystem(scene, city) {
   bodies.castShadow = true; bodies.receiveShadow = true;
   cabins.castShadow = true;
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-  for (let i = 0; i < MAX_INSTANCES; i++) {
+  function hideSlot(i) {
     bodies.setMatrixAt(i, zero); cabins.setMatrixAt(i, zero);
     headl.setMatrixAt(i, zero); tail.setMatrixAt(i, zero);
     for (let k = 0; k < 4; k++) wheels.setMatrixAt(i * 4 + k, zero);
   }
+  for (let i = 0; i < MAX_INSTANCES; i++) hideSlot(i);
 
   const system = {
     list,
@@ -226,7 +237,7 @@ export function createVehicleSystem(scene, city) {
         x: opts.x, z: opts.z, y: city.groundHeightAt(opts.x, opts.z),
         yaw: opts.yaw || 0,
         vx: 0, vz: 0, speed: 0, impact: 0,
-        kind: opts.kind || 'parked',   // parked | traffic | player
+        kind: opts.kind || 'parked',   // parked | traffic | player | police
         occupied: false,
         stolen: false,
         ai: null,
@@ -245,11 +256,7 @@ export function createVehicleSystem(scene, city) {
       const i = list.indexOf(v);
       if (i >= 0) list.splice(i, 1);
       freeSlots.push(v.slot);
-      bodies.setMatrixAt(v.slot, zero);
-      cabins.setMatrixAt(v.slot, zero);
-      headl.setMatrixAt(v.slot, zero);
-      tail.setMatrixAt(v.slot, zero);
-      for (let k = 0; k < 4; k++) wheels.setMatrixAt(v.slot * 4 + k, zero);
+      hideSlot(v.slot);
       if (system.playerCar === v) system.playerCar = null;
     },
     // Swap a car to the detailed mesh (player enters) or back to instances.
@@ -257,11 +264,7 @@ export function createVehicleSystem(scene, city) {
       if (v.mesh) return;
       v.mesh = createVehicleMesh(v.type, v.color);
       scene.add(v.mesh);
-      bodies.setMatrixAt(v.slot, zero);
-      cabins.setMatrixAt(v.slot, zero);
-      headl.setMatrixAt(v.slot, zero);
-      tail.setMatrixAt(v.slot, zero);
-      for (let k = 0; k < 4; k++) wheels.setMatrixAt(v.slot * 4 + k, zero);
+      hideSlot(v.slot);
     },
     detachPlayerMesh(v) {
       if (!v.mesh) return;
@@ -294,6 +297,7 @@ export function createVehicleSystem(scene, city) {
         };
         updateVehiclePhysics(pc, dt, ctrl, city);
       }
+      // Loose parked cars keep rolling/sliding until friction stops them.
       for (const v of list) {
         if (v === pc || v.kind === 'traffic' || v.kind === 'police') continue;
         if (Math.abs(v.vx) + Math.abs(v.vz) > 0.01) updateVehiclePhysics(v, dt, { throttle: 0, steer: 0 }, city);
@@ -319,6 +323,7 @@ export function createVehicleSystem(scene, city) {
     },
   };
 
+  // Place one part in car-local space, rotated by the car's yaw.
   function setPart(mesh, slot, v, lx, ly, lz, sx, sy, sz) {
     const c = Math.cos(v.yaw), s = Math.sin(v.yaw);
     dummy.position.set(v.x + lx * c + lz * s, v.y + ly, v.z - lx * s + lz * c);

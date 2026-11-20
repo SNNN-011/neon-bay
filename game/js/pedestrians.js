@@ -1,8 +1,10 @@
-// Neon Bay — pedestrians: instanced townsfolk strolling sidewalk rings, fleeing threats; spawnAt for NPCs.
+// Neon Bay — pedestrians: instanced townsfolk looping sidewalk rings,
+// pausing, reversing, fleeing threats and rejoining afterwards. spawnAt
+// places fixed NPCs (mission givers / enemies) that hold their ground.
 
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { clamp, mulberry32, randRange, randInt, pick, resolveCircleVsBoxes } from './util.js';
+import { mulberry32, randRange, randInt, pick, resolveCircleVsBoxes } from './util.js';
 import { carCircles } from './vehicles.js';
 
 const P = CONFIG.peds;
@@ -21,6 +23,7 @@ export function createPedestrians(scene, city, rngSeed) {
   const freeSlots = [];
   for (let i = MAX - 1; i >= 0; i--) freeSlots.push(i);
 
+  // Four instanced batches: torso, head, two legs, two arms per ped.
   const unit = new THREE.BoxGeometry(1, 1, 1);
   const legGeo = new THREE.BoxGeometry(0.16, 0.72, 0.18);
   legGeo.translate(0, -0.36, 0); // pivot at the hip
@@ -50,6 +53,16 @@ export function createPedestrians(scene, city, rngSeed) {
     ];
   }
 
+  function paint(p, shirt, pant, skinHex, sleeve) {
+    torsos.setColorAt(p.slot, tmpColor.setHex(shirt));
+    heads.setColorAt(p.slot, tmpColor.setHex(skinHex));
+    legs.setColorAt(p.slot * 2, tmpColor.setHex(pant));
+    legs.setColorAt(p.slot * 2 + 1, tmpColor.setHex(pant));
+    arms.setColorAt(p.slot * 2, tmpColor.setHex(sleeve));
+    arms.setColorAt(p.slot * 2 + 1, tmpColor.setHex(sleeve));
+    for (const m of meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+  }
+
   function spawn(focus) {
     if (!freeSlots.length) return false;
     const centers = city.cellCenters;
@@ -72,15 +85,9 @@ export function createPedestrians(scene, city, rngSeed) {
       active: true,
     };
     list.push(p);
-    torsos.setColorAt(p.slot, tmpColor.setHex(pick(rng, SHIRTS)));
-    heads.setColorAt(p.slot, tmpColor.setHex(pick(rng, SKIN)));
-    const pant = pick(rng, PANTS);
-    legs.setColorAt(p.slot * 2, tmpColor.setHex(pant));
-    legs.setColorAt(p.slot * 2 + 1, tmpColor.setHex(pant));
-    const sleeve = pick(rng, SHIRTS);
-    arms.setColorAt(p.slot * 2, tmpColor.setHex(sleeve));
-    arms.setColorAt(p.slot * 2 + 1, tmpColor.setHex(sleeve));
-    for (const m of meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    // Four rolls in the original stream order: torso, skin, pants, sleeves.
+    const shirt = pick(rng, SHIRTS), skinHex = pick(rng, SKIN), pant = pick(rng, PANTS), sleeve = pick(rng, SHIRTS);
+    paint(p, shirt, pant, skinHex, sleeve);
     return true;
   }
 
@@ -96,7 +103,8 @@ export function createPedestrians(scene, city, rngSeed) {
     arms.setMatrixAt(p.slot * 2 + 1, zero);
   }
 
-  // drives them); opts = { shirt, pants, hold, yaw }.
+  // Fixed NPC at an exact spot (mission givers, enemies). opts =
+  // { shirt, pants, hold, yaw }; hold means missions.js drives movement.
   function spawnAt(x, z, opts = {}) {
     if (!freeSlots.length) return null;
     const p = {
@@ -105,14 +113,8 @@ export function createPedestrians(scene, city, rngSeed) {
       kx: 0, kz: 0, slot: freeSlots.pop(), active: true, hold: !!opts.hold,
     };
     list.push(p);
-    const shirt = opts.shirt || 0xffc36b, pant = opts.pants || 0x35304f;
-    torsos.setColorAt(p.slot, tmpColor.setHex(shirt));
-    heads.setColorAt(p.slot, tmpColor.setHex(0xe8b48c));
-    arms.setColorAt(p.slot * 2, tmpColor.setHex(shirt));
-    arms.setColorAt(p.slot * 2 + 1, tmpColor.setHex(shirt));
-    legs.setColorAt(p.slot * 2, tmpColor.setHex(pant));
-    legs.setColorAt(p.slot * 2 + 1, tmpColor.setHex(pant));
-    for (const m of meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    const shirt = opts.shirt || 0xffc36b;
+    paint(p, shirt, opts.pants || 0x35304f, 0xe8b48c, shirt);
     return p;
   }
 
@@ -128,7 +130,7 @@ export function createPedestrians(scene, city, rngSeed) {
   function startFlee(p, ax, az, duration) {
     if (p.hold) return; // mission givers / enemies stand their ground
     const d = Math.hypot(ax, az) || 1;
-    // Run away from the threat with a slight sideways jink.
+    // Run from the threat with a slight sideways jink so crowds spread.
     const jink = (rng() - 0.5) * 0.9;
     p.fleeX = ax / d + (-az / d) * jink;
     p.fleeZ = az / d + (ax / d) * jink;
@@ -148,7 +150,7 @@ export function createPedestrians(scene, city, rngSeed) {
     for (let a = 0; a < 6 && list.length < P.count; a++) spawn(focus);
 
     for (const p of list) {
-      // Fear: fast approaching cars set off a flee response.
+      // Fear: fast approaching cars trigger a flee response.
       for (const v of vehicles.list) {
         if (!v.active) continue;
         const cs = Math.hypot(v.vx, v.vz);
@@ -178,7 +180,7 @@ export function createPedestrians(scene, city, rngSeed) {
         p.flee -= dt;
         mx = p.fleeX; mz = p.fleeZ; spd = P.fleeSpeed;
         if (p.flee <= 0) {
-          // Rejoin the nearest sidewalk corner.
+          // Calmed down: head for the nearest sidewalk corner to rejoin.
           let best = null, bestD = Infinity, bcx = 0, bcz = 0, bci = 0;
           for (const cx of city.cellCenters) for (const cz of city.cellCenters) {
             const cs = corners(cx, cz);
@@ -198,6 +200,7 @@ export function createPedestrians(scene, city, rngSeed) {
       } else if (p.pause > 0) {
         p.pause -= dt;
       } else {
+        // Stroll the ring: advance corner to corner, occasionally idle or flip.
         const cs = corners(p.cx, p.cz);
         const target = cs[(p.ci + p.cw + 4) % 4];
         const dx = target.x - p.x, dz = target.z - p.z;
@@ -216,7 +219,7 @@ export function createPedestrians(scene, city, rngSeed) {
       p.kz *= Math.exp(-5 * dt);
       const pos = { x: p.x, z: p.z };
       if (resolveCircleVsBoxes(pos, 0.32, city.colliders)) {
-        // Blocked while fleeing: turn along the obstacle.
+        // Blocked while fleeing: slide along the obstacle instead.
         if (p.flee > 0) {
           const t = p.fleeX;
           p.fleeX = -p.fleeZ; p.fleeZ = t;
